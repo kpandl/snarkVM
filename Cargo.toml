@@ -149,6 +149,7 @@ parameters = [ "snarkvm-parameters" ]
 synthesizer = [ "snarkvm-synthesizer" ]
 utilities = [ "snarkvm-utilities" ]
 wasm = [ "snarkvm-wasm" ]
+console-test = ["snarkvm-console/test"]
 
 [dependencies.snarkvm-algorithms]
 path = "./algorithms"
