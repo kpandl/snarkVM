@@ -16,46 +16,90 @@
 use super::*;
 
 impl<N: Network> Signature<N> {
-    /// Verifies (challenge == challenge') && (address == address') where:
-    ///     challenge' := HashToScalar(G^response pk_sig^challenge, pk_sig, pr_sig, address, message)
+    /// Verifies (challenge == candidate_challenge) && (address == candidate_address), where:
+    ///     candidate_challenge := HashToScalar(G^response pk_sig^challenge, pk_sig, pr_sig, address, message).
     pub fn verify(&self, address: &Address<N>, message: &[Field<N>]) -> bool {
-        // Ensure the number of field elements does not exceed the maximum allowed size.
+        // 1) Ensure the number of field elements does not exceed the maximum allowed size.
         if message.len() > N::MAX_DATA_SIZE_IN_FIELDS as usize {
-            eprintln!("Cannot sign the signature: the signed message exceeds maximum allowed size");
+            eprintln!("[DEBUG][signature.verify] The message has {} field elements, exceeding N::MAX_DATA_SIZE_IN_FIELDS = {}",
+                message.len(),
+                N::MAX_DATA_SIZE_IN_FIELDS
+            );
             return false;
         }
 
-        // Retrieve pk_sig.
+        // 2) Retrieve pk_sig and pr_sig from the compute key.
         let pk_sig = self.compute_key.pk_sig();
-        // Retrieve pr_sig.
         let pr_sig = self.compute_key.pr_sig();
 
-        // Compute `g_r` := (response * G) + (challenge * pk_sig).
-        let g_r = N::g_scalar_multiply(&self.response) + (pk_sig * self.challenge);
+        eprintln!("\n[DEBUG][signature.verify] Starting verify.");
+        eprintln!("[DEBUG][signature.verify] self.challenge() = {:?}", self.challenge);
+        eprintln!("[DEBUG][signature.verify] self.response()  = {:?}", self.response);
+        eprintln!("[DEBUG][signature.verify] pk_sig           = {:?}", pk_sig);
+        eprintln!("[DEBUG][signature.verify] pr_sig           = {:?}", pr_sig);
+        eprintln!("[DEBUG][signature.verify] provided address = {:?}", address);
+        eprintln!("[DEBUG][signature.verify] message length   = {} field elements", message.len());
 
-        // Construct the hash input as (r * G, pk_sig, pr_sig, address, message).
+        // 3) Compute `g_r` := (response * G) + (challenge * pk_sig).
+        //    This is the ephemeral R used in the challenge hash.
+        let g_r = N::g_scalar_multiply(&self.response) + (pk_sig * self.challenge);
+        eprintln!("[DEBUG][signature.verify] computed ephemeral g_r = {:?}", g_r);
+
+        // 4) Construct the hash input as [g_r, pk_sig, pr_sig, address, message].
         let mut preimage = Vec::with_capacity(4 + message.len());
         preimage.extend([g_r, pk_sig, pr_sig, **address].map(|point| point.to_x_coordinate()));
         preimage.extend(message);
 
-        // Hash to derive the verifier challenge, and return `false` if this operation fails.
+        // 5) Hash to derive the verifier challenge, and return `false` if this operation fails.
         let candidate_challenge = match N::hash_to_scalar_psd8(&preimage) {
-            // Output the computed candidate challenge.
-            Ok(candidate_challenge) => candidate_challenge,
-            // Return `false` if the challenge errored.
-            Err(_) => return false,
+            Ok(ch) => {
+                eprintln!("[DEBUG][signature.verify] candidate_challenge = {:?}", ch);
+                ch
+            }
+            Err(error) => {
+                eprintln!("[DEBUG][signature.verify] Failed to compute candidate challenge: {error}");
+                return false;
+            }
         };
 
-        // Derive the address from the compute key, and return `false` if this operation fails.
+        // 6) Derive the candidate address from the compute key.
         let candidate_address = match Address::try_from(self.compute_key) {
-            // Output the computed candidate address.
-            Ok(candidate_address) => candidate_address,
-            // Return `false` if the address errored.
-            Err(_) => return false,
+            Ok(addr) => {
+                eprintln!("[DEBUG][signature.verify] candidate_address   = {:?}", addr);
+                addr
+            }
+            Err(error) => {
+                eprintln!("[DEBUG][signature.verify] Failed to derive address from compute key: {error}");
+                return false;
+            }
         };
 
-        // Return `true` if the candidate challenge and address are correct.
-        self.challenge == candidate_challenge && *address == candidate_address
+        // 7) Check if challenge == candidate_challenge, and address == candidate_address.
+        let challenge_match = (self.challenge == candidate_challenge);
+        let address_match   = (*address == candidate_address);
+
+        eprintln!("[DEBUG][signature.verify] => challenge match? {challenge_match}, address match? {address_match}");
+
+        if !challenge_match {
+            eprintln!(
+                "[DEBUG][signature.verify] challenge mismatch: self.challenge = {:?}, candidate_challenge = {:?}",
+                self.challenge, candidate_challenge
+            );
+        }
+        if !address_match {
+            eprintln!(
+                "[DEBUG][signature.verify] address mismatch: *address = {:?}, candidate_address = {:?}",
+                address, candidate_address
+            );
+        }
+
+        let passed = challenge_match && address_match;
+        if passed {
+            eprintln!("[DEBUG][signature.verify] => signature check succeeded!");
+        } else {
+            eprintln!("[DEBUG][signature.verify] => signature check failed!");
+        }
+        passed
     }
 
     /// Verifies a signature for the given address and message (as bytes).
@@ -66,11 +110,17 @@ impl<N: Network> Signature<N> {
 
     /// Verifies a signature for the given address and message (as bits).
     pub fn verify_bits(&self, address: &Address<N>, message: &[bool]) -> bool {
-        // Pack the bits into field elements.
-        match message.chunks(Field::<N>::size_in_data_bits()).map(Field::from_bits_le).collect::<Result<Vec<_>>>() {
+        // Pack the bits into field elements, and then verify.
+        match message
+            .chunks(Field::<N>::size_in_data_bits())
+            .map(Field::from_bits_le)
+            .collect::<Result<Vec<_>>>()
+        {
             Ok(fields) => self.verify(address, &fields),
             Err(error) => {
-                eprintln!("Failed to verify signature: {error}");
+                eprintln!(
+                    "[DEBUG][signature.verify_bits] Failed to convert bits to fields: {error}"
+                );
                 false
             }
         }
