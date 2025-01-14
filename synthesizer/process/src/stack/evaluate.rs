@@ -106,6 +106,10 @@ impl<N: Network> StackEvaluate<N> for Stack<N> {
     ) -> Result<Response<N>> {
         let timer = timer!("Stack::evaluate_function");
 
+        eprintln!("\n[DEBUG][evaluate_function] Starting evaluate_function");
+        eprintln!("[DEBUG][evaluate_function] console_caller = {:?}", console_caller);
+    
+
         // Ensure the global constants for the Aleo environment are initialized.
         A::initialize_global_constants();
         // Ensure the circuit environment is clean.
@@ -151,6 +155,12 @@ impl<N: Network> StackEvaluate<N> for Stack<N> {
             Some(caller_id) => (false, caller_id.to_address()?),
             None => (true, signer),
         };
+
+        eprintln!("[DEBUG][evaluate_function] is_root = {}, function.input_types = {:?}",
+        is_root, function.input_types());
+eprintln!("[DEBUG][evaluate_function] request has {} inputs, they are: {:#?}",
+        inputs.len(), inputs);
+
         
         let tvk = *request.tvk();
 
@@ -175,6 +185,8 @@ impl<N: Network> StackEvaluate<N> for Stack<N> {
         // Set the transition view key.
         registers.set_tvk(tvk);
         lap!(timer, "Initialize the registers");
+
+        eprintln!("[DEBUG][evaluate_function] verifying request now...");
 
         // Ensure the request is well-formed.
         ensure!(request.verify(&function.input_types(), is_root), "Request is invalid");
