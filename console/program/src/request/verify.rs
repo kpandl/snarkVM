@@ -21,190 +21,208 @@ impl<N: Network> Request<N> {
     /// Verifies (challenge == challenge') && (address == address') && (serial_numbers == serial_numbers') where:
     ///     challenge' := HashToScalar(r * G, pk_sig, pr_sig, signer, \[tvk, tcm, function ID, input IDs\])
     pub fn verify(&self, input_types: &[ValueType<N>], is_root: bool) -> bool {
-        // Verify the transition public key, transition view key, and transition commitment are well-formed.
+        eprintln!("\n[DEBUG][request.verify] Starting verify. program_id = {:?}, function_name = {:?}",
+                  self.program_id, self.function_name);
+        eprintln!("[DEBUG][request.verify] is_root = {is_root}, #input_types = {}",
+                  input_types.len());
+        eprintln!("[DEBUG][request.verify] self.tvk = {:?}", self.tvk);
+        eprintln!("[DEBUG][request.verify] self.tcm = {:?}", self.tcm);
+
+        // 1) Verify the transition public key, transition view key, and transition commitment are well-formed.
         {
-            // Compute the transition commitment `tcm` as `Hash(tvk)`.
             match N::hash_psd2(&[self.tvk]) {
                 Ok(tcm) => {
-                    // Ensure the computed transition commitment matches.
                     if tcm != self.tcm {
-                        eprintln!("Invalid transition commitment in request.");
+                        eprintln!("[DEBUG][request.verify] Invalid transition commitment. Computed = {:?}, in request = {:?}", tcm, self.tcm);
                         return false;
                     }
                 }
                 Err(error) => {
-                    eprintln!("Failed to compute transition commitment in request verification: {error}");
+                    eprintln!("[DEBUG][request.verify] Failed to compute transition commitment: {error}");
                     return false;
                 }
             }
         }
 
-        // Retrieve the challenge from the signature.
+        // 2) Retrieve the challenge and response from the signature.
         let challenge = self.signature.challenge();
-        // Retrieve the response from the signature.
         let response = self.signature.response();
+        eprintln!("[DEBUG][request.verify] signature.challenge() = {:?}", challenge);
+        eprintln!("[DEBUG][request.verify] signature.response() = {:?}", response);
 
-        // Compute the function ID.
+        // 3) Compute the function ID.
         let function_id = match compute_function_id(&self.network_id, &self.program_id, &self.function_name) {
             Ok(function_id) => function_id,
             Err(error) => {
-                eprintln!("Failed to construct the function ID: {error}");
+                eprintln!("[DEBUG][request.verify] Failed to construct function ID: {error}");
                 return false;
             }
         };
+        eprintln!("[DEBUG][request.verify] Computed function_id = {:?}", function_id);
 
-        // Compute the 'is_root' field.
-        let is_root = if is_root { Field::<N>::one() } else { Field::<N>::zero() };
+        // 4) Convert `is_root` into a field: 1 if root, else 0.
+        let is_root_field = if is_root {
+            Field::<N>::one()
+        } else {
+            Field::<N>::zero()
+        };
 
-        // Construct the signature message as `[tvk, tcm, function ID, input IDs]`.
-        let mut message = Vec::with_capacity(3 + self.input_ids.len());
+        // 5) Construct the signature message as `[tvk, tcm, function_id, is_root, input IDs...]`.
+        let mut message = Vec::with_capacity(4 + self.input_ids.len());
         message.push(self.tvk);
         message.push(self.tcm);
         message.push(function_id);
-        message.push(is_root);
+        message.push(is_root_field);
 
-        if let Err(error) = self.input_ids.iter().zip_eq(&self.inputs).zip_eq(input_types).enumerate().try_for_each(
-            |(index, ((input_id, input), input_type))| {
+        eprintln!("[DEBUG][request.verify] #input_ids = {}, #inputs = {}, #input_types = {}",
+                  self.input_ids.len(), self.inputs.len(), input_types.len());
+
+        // 6) Check each input ID against the corresponding input and input type.
+        let result = self
+            .input_ids
+            .iter()
+            .zip_eq(&self.inputs)
+            .zip_eq(input_types)
+            .enumerate()
+            .try_for_each(|(index, ((input_id, input), input_type))| {
+                // We'll add logs around each match arm.
+
+                eprintln!("[DEBUG][request.verify] Checking input #{} => id={:?}, input={:?}, input_type={:?}",
+                          index, input_id, input, input_type);
+
                 match input_id {
-                    // A constant input is hashed (using `tcm`) to a field element.
+                    // ====================
+                    // A) Constant input
+                    // ====================
                     InputID::Constant(input_hash) => {
-                        // Ensure the input is a plaintext.
-                        ensure!(matches!(input, Value::Plaintext(..)), "Expected a plaintext input");
+                        eprintln!("[DEBUG][request.verify] => Found InputID::Constant, verifying input hash");
+                        ensure!(matches!(input, Value::Plaintext(..)), "[DEBUG][request.verify] Expected a plaintext input for Constant ID");
 
-                        // Construct the (console) input index as a field element.
-                        let index = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
-                        // Construct the preimage as `(function ID || input || tcm || index)`.
+                        // Build the preimage.
+                        let index_field = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
                         let mut preimage = Vec::new();
                         preimage.push(function_id);
                         preimage.extend(input.to_fields()?);
                         preimage.push(self.tcm);
-                        preimage.push(index);
+                        preimage.push(index_field);
+
                         // Hash the input to a field element.
                         let candidate_hash = N::hash_psd8(&preimage)?;
-                        // Ensure the input hash matches.
-                        ensure!(*input_hash == candidate_hash, "Expected a constant input with the same hash");
-
-                        // Add the input hash to the message.
+                        ensure!(*input_hash == candidate_hash, "[DEBUG][request.verify] Constant input mismatch in hash");
                         message.push(candidate_hash);
                     }
-                    // A public input is hashed (using `tcm`) to a field element.
+
+                    // ====================
+                    // B) Public input
+                    // ====================
                     InputID::Public(input_hash) => {
-                        // Ensure the input is a plaintext.
-                        ensure!(matches!(input, Value::Plaintext(..)), "Expected a plaintext input");
+                        eprintln!("[DEBUG][request.verify] => Found InputID::Public, verifying input hash");
+                        ensure!(matches!(input, Value::Plaintext(..)), "[DEBUG][request.verify] Expected a plaintext input for Public ID");
 
-                        // Construct the (console) input index as a field element.
-                        let index = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
-                        // Construct the preimage as `(function ID || input || tcm || index)`.
+                        // Build the preimage.
+                        let index_field = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
                         let mut preimage = Vec::new();
                         preimage.push(function_id);
                         preimage.extend(input.to_fields()?);
                         preimage.push(self.tcm);
-                        preimage.push(index);
-                        // Hash the input to a field element.
-                        let candidate_hash = N::hash_psd8(&preimage)?;
-                        // Ensure the input hash matches.
-                        ensure!(*input_hash == candidate_hash, "Expected a public input with the same hash");
+                        preimage.push(index_field);
 
-                        // Add the input hash to the message.
+                        let candidate_hash = N::hash_psd8(&preimage)?;
+                        ensure!(*input_hash == candidate_hash, "[DEBUG][request.verify] Public input mismatch in hash");
                         message.push(candidate_hash);
                     }
-                    // A private input is encrypted (using `tvk`) and hashed to a field element.
-                    InputID::Private(input_hash) => {
-                        // Ensure the input is a plaintext.
-                        ensure!(matches!(input, Value::Plaintext(..)), "Expected a plaintext input");
 
-                        // Construct the (console) input index as a field element.
-                        let index = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
-                        // Compute the input view key as `Hash(function ID || tvk || index)`.
-                        let input_view_key = N::hash_psd4(&[function_id, self.tvk, index])?;
-                        // Compute the ciphertext.
+                    // ====================
+                    // C) Private input
+                    // ====================
+                    InputID::Private(input_hash) => {
+                        eprintln!("[DEBUG][request.verify] => Found InputID::Private, verifying input encryption & hash");
+                        ensure!(matches!(input, Value::Plaintext(..)), "[DEBUG][request.verify] Expected a plaintext input for Private ID");
+
+                        let index_field = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
+                        let input_view_key = N::hash_psd4(&[function_id, self.tvk, index_field])?;
                         let ciphertext = match &input {
                             Value::Plaintext(plaintext) => plaintext.encrypt_symmetric(input_view_key)?,
-                            // Ensure the input is a plaintext.
-                            Value::Record(..) => bail!("Expected a plaintext input, found a record input"),
-                            Value::Future(..) => bail!("Expected a plaintext input, found a future input"),
+                            _ => bail!("[DEBUG][request.verify] Expected a plaintext input, found something else"),
                         };
-                        // Hash the ciphertext to a field element.
                         let candidate_hash = N::hash_psd8(&ciphertext.to_fields()?)?;
-                        // Ensure the input hash matches.
-                        ensure!(*input_hash == candidate_hash, "Expected a private input with the same commitment");
-
-                        // Add the input hash to the message.
+                        ensure!(*input_hash == candidate_hash, "[DEBUG][request.verify] Private input mismatch in hash");
                         message.push(candidate_hash);
                     }
-                    // A record input is computed to its serial number.
+
+                    // ====================
+                    // D) Record input
+                    // ====================
                     InputID::Record(commitment, gamma, serial_number, tag) => {
-                        // Retrieve the record.
+                        eprintln!("[DEBUG][request.verify] => Found InputID::Record, verifying record commitment & serial number");
                         let record = match &input {
-                            Value::Record(record) => record,
-                            // Ensure the input is a record.
-                            Value::Plaintext(..) => bail!("Expected a record input, found a plaintext input"),
-                            Value::Future(..) => bail!("Expected a record input, found a future input"),
+                            Value::Record(r) => r,
+                            _ => bail!("[DEBUG][request.verify] Expected a record input, found something else"),
                         };
-                        // Retrieve the record name.
                         let record_name = match input_type {
-                            ValueType::Record(record_name) => record_name,
-                            // Ensure the input type is a record.
-                            _ => bail!("Expected a record type at input {index}"),
+                            ValueType::Record(rn) => rn,
+                            _ => bail!("[DEBUG][request.verify] Mismatch: function input type was not 'record'"),
                         };
-                        // Ensure the record belongs to the signer.
-                        ensure!(**record.owner() == self.signer, "Input record does not belong to the signer");
+                        ensure!(**record.owner() == self.signer, "[DEBUG][request.verify] Input record does not belong to the signer");
 
-                        // Compute the record commitment.
+                        // Commitment check
                         let candidate_cm = record.to_commitment(&self.program_id, record_name)?;
-                        // Ensure the commitment matches.
-                        ensure!(*commitment == candidate_cm, "Expected a record input with the same commitment");
+                        ensure!(*commitment == candidate_cm, "[DEBUG][request.verify] record commitment mismatch");
 
-                        // Compute the `candidate_sn` from `gamma`.
+                        // Serial number check
                         let candidate_sn = Record::<N, Plaintext<N>>::serial_number_from_gamma(gamma, *commitment)?;
-                        // Ensure the serial number matches.
-                        ensure!(*serial_number == candidate_sn, "Expected a record input with the same serial number");
+                        ensure!(*serial_number == candidate_sn, "[DEBUG][request.verify] record SN mismatch");
 
-                        // Compute the generator `H` as `HashToGroup(commitment)`.
+                        // Tag check
                         let h = N::hash_to_group_psd2(&[N::serial_number_domain(), *commitment])?;
-                        // Compute `h_r` as `(challenge * gamma) + (response * H)`, equivalent to `r * H`.
                         let h_r = (*gamma * challenge) + (h * response);
 
-                        // Compute the tag as `Hash(sk_tag || commitment)`.
                         let candidate_tag = N::hash_psd2(&[self.sk_tag, *commitment])?;
-                        // Ensure the tag matches.
-                        ensure!(*tag == candidate_tag, "Expected a record input with the same tag");
+                        ensure!(*tag == candidate_tag, "[DEBUG][request.verify] record input tag mismatch");
 
-                        // Add (`H`, `r * H`, `gamma`, `tag`) to the message.
+                        // Add (H, h_r, gamma, tag) x-coordinates
                         message.extend([h, h_r, *gamma].iter().map(|point| point.to_x_coordinate()));
                         message.push(*tag);
                     }
-                    // An external record input is hashed (using `tvk`) to a field element.
-                    InputID::ExternalRecord(input_hash) => {
-                        // Ensure the input is a record.
-                        ensure!(matches!(input, Value::Record(..)), "Expected a record input");
 
-                        // Construct the (console) input index as a field element.
-                        let index = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
-                        // Construct the preimage as `(function ID || input || tvk || index)`.
+                    // ====================
+                    // E) External record
+                    // ====================
+                    InputID::ExternalRecord(input_hash) => {
+                        eprintln!("[DEBUG][request.verify] => Found InputID::ExternalRecord, verifying locator hash");
+                        ensure!(matches!(input, Value::Record(..)), "[DEBUG][request.verify] Expected a record input for external record ID");
+
+                        let index_field = Field::from_u16(u16::try_from(index).or_halt_with::<N>("Input index exceeds u16"));
                         let mut preimage = Vec::new();
                         preimage.push(function_id);
                         preimage.extend(input.to_fields()?);
                         preimage.push(self.tvk);
-                        preimage.push(index);
-                        // Hash the input to a field element.
-                        let candidate_hash = N::hash_psd8(&preimage)?;
-                        // Ensure the input hash matches.
-                        ensure!(*input_hash == candidate_hash, "Expected a locator input with the same hash");
+                        preimage.push(index_field);
 
-                        // Add the input hash to the message.
+                        let candidate_hash = N::hash_psd8(&preimage)?;
+                        ensure!(*input_hash == candidate_hash, "[DEBUG][request.verify] external record mismatch in hash");
                         message.push(candidate_hash);
                     }
                 }
                 Ok(())
-            },
-        ) {
-            eprintln!("Request verification failed on input checks: {error}");
+            });
+
+        // If any check failed:
+        if let Err(error) = result {
+            eprintln!("[DEBUG][request.verify] => Input check failed: {error}");
             return false;
         }
 
-        // Verify the signature.
-        self.signature.verify(&self.signer, &message)
+        eprintln!("[DEBUG][request.verify] All inputs passed checks. Now verifying signature with message len = {}", message.len());
+        eprintln!("[DEBUG][request.verify] signer = {:?}", self.signer);
+
+        // 7) Finally, verify the signature with the signer + message.
+        let sig_ok = self.signature.verify(&self.signer, &message);
+        eprintln!("[DEBUG][request.verify] signature.verify(...) = {}", sig_ok);
+        if !sig_ok {
+            eprintln!("[DEBUG][request.verify] => signature check failed!");
+        }
+        sig_ok
     }
 }
 
