@@ -212,7 +212,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     console_inputs.iter(),
                     &function.input_types(),
                     root_tvk,
-                    /* is_root = */ true,  // Let's set `true` so it tries a real sub-circuit
+                    /* is_root = */ false,  // Let's set `true` so it tries a real sub-circuit
                     rng,
                 )?;
                 eprintln!("  [Call::execute] Pushing request => {request:?}");
