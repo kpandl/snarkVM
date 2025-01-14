@@ -13,7 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{CallStack, Registers, RegistersCall, StackEvaluate, StackExecute, stack::Address};
+use crate::{
+    stack::Address,
+    CallStack,
+    Registers,
+    RegistersCall,
+    StackEvaluate,
+    StackExecute,
+};
 use aleo_std::prelude::{finish, lap, timer};
 use console::{
     account::Field,
@@ -34,17 +41,18 @@ use synthesizer_program::{
     StackProgram,
 };
 
-use circuit::Eject;
+use circuit::{Eject, Inject};
 
+/// A trait that provides `evaluate` and `execute` for `Call`.
 pub trait CallTrait<N: Network> {
-    /// Evaluates the instruction.
+    /// Evaluates the instruction (console-level).
     fn evaluate<A: circuit::Aleo<Network = N>>(
         &self,
         stack: &(impl StackEvaluate<N> + StackMatches<N> + StackProgram<N>),
         registers: &mut Registers<N, A>,
     ) -> Result<()>;
 
-    /// Executes the instruction.
+    /// Executes the instruction (circuit-level).
     fn execute<A: circuit::Aleo<Network = N>, R: CryptoRng + Rng>(
         &self,
         stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
@@ -61,7 +69,7 @@ pub trait CallTrait<N: Network> {
 
 impl<N: Network> CallTrait<N> for Call<N> {
     // -----------------------------------------------------------
-    // EVALUATE
+    // EVALUATE  (Console-level)
     // -----------------------------------------------------------
     #[inline]
     fn evaluate<A: circuit::Aleo<Network = N>>(
@@ -71,8 +79,12 @@ impl<N: Network> CallTrait<N> for Call<N> {
     ) -> Result<()> {
         let timer = timer!("Call::evaluate");
 
-        // 1. Load the operand values.
-        let inputs: Vec<_> = self.operands().iter().map(|operand| registers.load(stack, operand)).try_collect()?;
+        // 1. Load the operand values (console-level).
+        let inputs: Vec<_> = self
+            .operands()
+            .iter()
+            .map(|operand| registers.load(stack, operand))
+            .try_collect()?;
 
         // 2. Retrieve the substack and resource.
         let (substack, resource) = match self.operator() {
@@ -112,11 +124,11 @@ impl<N: Network> CallTrait<N> for Call<N> {
             let response = substack.evaluate_function::<A>(registers.call_stack(), console_caller)?;
             response.outputs().to_vec()
         } else {
-            bail!("Call operator '{}' is invalid or unsupported.", self.operator())
+            bail!("Call operator '{:?}' is invalid or unsupported.", self.operator())
         };
         lap!(timer, "Computed outputs");
 
-        // 4. Store the outputs.
+        // 4. Store the outputs in console-level registers.
         for (output, register) in outputs.into_iter().zip_eq(&self.destinations()) {
             registers.store(stack, register, output)?;
         }
@@ -126,10 +138,10 @@ impl<N: Network> CallTrait<N> for Call<N> {
     }
 
     // -----------------------------------------------------------
-    // EXECUTE
+    // EXECUTE  (Circuit-level)
     // -----------------------------------------------------------
     #[inline]
-    fn execute<A: circuit::Aleo<Network = N>, R: Rng + CryptoRng>(
+    fn execute<A: circuit::Aleo<Network = N>, R: CryptoRng + Rng>(
         &self,
         stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
         registers: &mut (
@@ -143,9 +155,12 @@ impl<N: Network> CallTrait<N> for Call<N> {
     ) -> Result<()> {
         let timer = timer!("Call::execute");
 
-        // 1. Load the operand values.
-        let inputs: Vec<_> =
-            self.operands().iter().map(|operand| registers.load_circuit(stack, operand)).try_collect()?;
+        // 1. Load the operand values (circuit-level).
+        let inputs: Vec<_> = self
+            .operands()
+            .iter()
+            .map(|operand| registers.load_circuit(stack, operand))
+            .try_collect()?;
 
         // 2. Retrieve the substack and resource.
         let (substack, resource) = match self.operator() {
@@ -161,18 +176,19 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
         // 4. Handle top-level logic based on the call stack mode.
         let (request, response) = match registers.call_stack() {
-            // ----------------------------------------
-            // (a) Authorize or Synthesize mode
-            // ----------------------------------------
+            // ------------------------------------------------
+            // (a) Authorize or Synthesize
+            // ------------------------------------------------
             CallStack::Authorize(_, private_key, authorization)
             | CallStack::Synthesize(_, private_key, authorization) => {
-                // i. Construct a Request.
+                // i. Convert circuit inputs to console (since Request::sign expects console Values).
                 let function = substack.get_function_ref(resource)?;
                 let console_inputs: Vec<Value<N>> = inputs
-                .iter()
-                .map(|circuit_val| circuit_val.eject_value())
-                .collect();
-                
+                    .iter()
+                    .map(|circuit_val| circuit_val.eject_value()) // circuit -> console
+                    .collect();
+
+                // ii. Sign a request with those console inputs.
                 let request = Request::sign(
                     &private_key,
                     *substack.program_id(),
@@ -180,77 +196,141 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     console_inputs.iter(),
                     &function.input_types(),
                     root_tvk,
-                    false,
+                    /* is_root = */ false,
                     rng,
                 )?;
-                
-                // ii. Push the request onto the stack & authorization.
+
+                // iii. Add to the call stack & authorization.
                 {
                     let mut call_stack = registers.call_stack();
                     call_stack.push(request.clone())?;
                     authorization.push(request.clone());
                 }
-                // iii. Decide if we do a “real” sub-circuit or just evaluate/dummy:
+
+                // iv. Decide: build sub-circuit or not?
                 if /* e.g. top-level call needed? */ false {
                     // Real sub-circuit:
                     let mut call_stack = registers.call_stack();
-                    let response = substack.execute_function::<A, _>(call_stack, Some(*stack.program_id()), root_tvk, rng)?;
+                    let response = substack.execute_function::<A, _>(
+                        call_stack,
+                        Some(*stack.program_id()),
+                        root_tvk,
+                        rng,
+                    )?;
                     (request, response)
                 } else {
-                    // For nested calls, skip the full circuit:
+                    // Nested call => skip building sub-circuit, do 'evaluate_function' instead.
                     let mut call_stack = registers.call_stack();
                     let response = substack.evaluate_function::<A>(call_stack, Some(*stack.program_id()))?;
                     (request, response)
                 }
             }
 
-            // ----------------------------------------
-            // (b) CheckDeployment or PackageRun mode
-            // ----------------------------------------
+            // ------------------------------------------------
+            // (b) CheckDeployment
+            // ------------------------------------------------
             CallStack::CheckDeployment(_, private_key, ..) => {
-                // (Your “dummy outputs” approach from previous PRs)
-                unimplemented!("Existing CheckDeployment dummy logic from PR #1/#2")
-            }
-            CallStack::PackageRun(_, private_key, ..) => {
-                unimplemented!("Existing PackageRun logic from PR #1/#2")
+                // Provide a "dummy" approach to skip building sub-circuits,
+                // but still produce a valid Request & Response for the top-level to link.
+
+                // i. Convert circuit inputs to console.
+                let function = substack.get_function_ref(resource)?;
+                let console_inputs: Vec<Value<N>> = inputs
+                    .iter()
+                    .map(|circuit_val| circuit_val.eject_value())
+                    .collect();
+
+                // ii. Construct a request with console inputs.
+                let request = Request::sign(
+                    &private_key,
+                    *substack.program_id(),
+                    *resource,
+                    console_inputs.iter(),
+                    &function.input_types(),
+                    root_tvk,
+                    /* is_root = */ false,
+                    rng,
+                )?;
+
+                // iii. Sample or dummy-produce outputs. (For speed, skip real circuit.)
+                let address = Address::try_from(&private_key)?;
+                let outputs = function
+                    .outputs()
+                    .iter()
+                    .map(|output| {
+                        // (Optionally handle record types specially)
+                        stack.sample_value(&address, output.value_type(), rng)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                // iv. Map the output operands to registers.
+                let output_registers = function
+                    .outputs()
+                    .iter()
+                    .map(|output| match output.operand() {
+                        Operand::Register(reg) => Some(reg.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+
+                // v. Build a dummy response using these sampled outputs.
+                let response = crate::Response::new(
+                    request.network_id(),
+                    substack.program().id(),
+                    function.name(),
+                    request.inputs().len(),
+                    request.tvk(),
+                    request.tcm(),
+                    outputs,
+                    &function.output_types(),
+                    &output_registers,
+                )?;
+
+                (request, response)
             }
 
-            // ----------------------------------------
-            // (c) Evaluate or Execute mode
-            // ----------------------------------------
-            CallStack::Evaluate(authorization) | CallStack::Execute(authorization, ..) => {
-                unimplemented!("Your original Evaluate/Execute logic here")
+            // ------------------------------------------------
+            // (c) PackageRun
+            // ------------------------------------------------
+            CallStack::PackageRun(_, private_key, ..) => {
+                // If you want a similar "dummy approach" for packaging, do so.
+                // Otherwise, unimplemented!:
+                unimplemented!("Existing PackageRun logic here (if needed).")
+            }
+
+            // ------------------------------------------------
+            // (d) Evaluate or Execute
+            // ------------------------------------------------
+            CallStack::Evaluate(..) | CallStack::Execute(..) => {
+                // Original logic for Evaluate/Execute mode.
+                // If you need it, re-inject your original code here:
+                unimplemented!("Your original Evaluate/Execute logic here.")
             }
         };
         lap!(timer, "Computed the request and response");
 
-        // 5. [Optional] If you do circuit injection, define r1cs or remove:
-        //    e.g. let r1cs = A::eject_r1cs_and_reset();
-        //    A::inject_r1cs(r1cs);
+        // 5. (Optional) If you do circuit injection, e.g.:
+        // let r1cs = A::eject_r1cs_and_reset();
+        // A::inject_r1cs(r1cs);
 
-        // 6. For demonstration, let’s define `function` & do the standard “public var check” etc.
+        // 6. Basic checks (optional).
         let function = substack.get_function_ref(resource)?;
         let num_public = A::num_public();
-        ensure!(A::num_public() == num_public, "Forbidden: 'call' injected excess public variables");
+        ensure!(
+            A::num_public() == num_public,
+            "Forbidden: 'call' injected excess public variables"
+        );
 
-        // 7. E.g. do your TCM checks:
-        // ...
-        // (Omitted in this snippet — you can paste your final logic here.)
+        // 7. Suppose we produce “outputs” from the circuit:
+        // Actually we have a console-level Response -> convert to circuit:
 
-        // 8. Suppose we produce “outputs” from the circuit:
+        let console_outputs = response.outputs().to_vec(); // console Values
+        let circuit_outputs: Vec<circuit::Value<A>> = console_outputs
+            .into_iter()
+            .map(|val_n| circuit::Value::<A>::new(circuit::Mode::Private, val_n))
+            .collect();
 
-        // 3. Suppose you eventually build `response` which is also console-level `Response<N>`.
-let console_outputs = response.outputs().to_vec(); // Vec<console::Value<N>>
-
-// 4. Convert console -> circuit, if you want to store_circuit:
-use circuit::Inject; // for circuit::Value::<A>::new(...)
-let circuit_outputs: Vec<circuit::Value<A>> = console_outputs
-    .into_iter()
-    .map(|val_n| circuit::Value::<A>::new(circuit::Mode::Private, val_n))
-    .collect();
-
-
-        // 9. Assign the outputs to the destination registers.
+        // 8. Assign the circuit outputs to the circuit-level registers.
         for (output, register) in circuit_outputs.into_iter().zip_eq(&self.destinations()) {
             registers.store_circuit(stack, register, output)?;
         }
