@@ -231,13 +231,29 @@ CallStack::Authorize(_, private_key, authorization)
     let mut call_stack = registers.call_stack().replicate();
     call_stack.push(request.clone())?;
 
+    eprintln!(
+        "[Call::execute] -> top_level? {} => Passing console_caller={:?}, root_tvk={:?}",
+        is_root_call,
+        if is_root_call { None } else { Some(*stack.program_id()) },
+        if is_root_call { None } else { root_tvk },
+    );
+
     let response = if is_root_call {
-        eprintln!("  [Call::execute] => top-level => building real sub-circuit => substack.execute_function");
-        substack.execute_function::<A, _>(call_stack, None, root_tvk, rng)? 
-    } else {
-        eprintln!("  [Call::execute] => nested => skipping => substack.evaluate_function");
-        substack.evaluate_function::<A>(call_stack, Some(*stack.program_id()))?
-    };
+        substack.execute_function::<A, _>(
+            call_stack,
+            None,   // console_caller
+            None,   // root_tvk
+            rng,
+        )?
+     } else {
+        substack.execute_function::<A, _>(
+            call_stack,
+            Some(*stack.program_id()),  // console_caller
+            None,  // If you truly don’t have a real root TVK
+            rng,
+        )?
+     };
+     
     
     (request, response)
 }
