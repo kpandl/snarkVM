@@ -79,9 +79,13 @@ impl<N: Network> CallTrait<N> for Call<N> {
     ) -> Result<()> {
         let timer = timer!("Call::evaluate");
 
-        eprintln!("DEBUG: [execute] operator = {:?}", self.operator());
-        eprintln!("DEBUG2: [execute] call stack length = {}", registers.call_stack().request_count());
-        
+        eprintln!(
+            "\n[Call::evaluate] operator = {:?}, call stack mode (?) = (no direct info, but stack below)\n\
+             [Call::evaluate] We have request_count = {}",
+            self.operator(),
+            registers.call_stack().request_count()
+        );
+
         // 1. Load the operand values (console-level).
         let inputs: Vec<_> = self
             .operands()
@@ -92,15 +96,11 @@ impl<N: Network> CallTrait<N> for Call<N> {
         // 2. Retrieve the substack and resource.
         let (substack, resource) = match self.operator() {
             CallOperator::Locator(locator) => {
-                eprintln!(
-                    "DEBUG: [evaluate] Found a locator => substack = {}, resource = {}",
-                    locator.program_id(),
-                    locator.resource()
-                );
+                eprintln!("  [Call::evaluate] Using locator => substack = {}, resource = {}", locator.program_id(), locator.resource());
                 (stack.get_external_stack(locator.program_id())?.as_ref(), locator.resource())
             }
             CallOperator::Resource(resource) => {
-                eprintln!("DEBUG: [evaluate] Found a resource => resource = {resource}");
+                eprintln!("  [Call::evaluate] Using resource => {resource}");
                 if stack.program().contains_function(resource) {
                     bail!("Cannot call '{resource}'. Use a closure ('closure {resource}:') instead.")
                 }
@@ -111,10 +111,10 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
         // 3. Depending on whether it's a closure or function:
         let outputs = if let Ok(closure) = substack.program().get_closure(resource) {
+            eprintln!("  [Call::evaluate] Found closure => evaluating closure");
             if closure.inputs().len() != inputs.len() {
                 bail!("Expected {} inputs, found {}", closure.inputs().len(), inputs.len())
             }
-            eprintln!("DEBUG: [evaluate] found a closure => evaluating closure");
             substack.evaluate_closure::<A>(
                 &closure,
                 &inputs,
@@ -124,21 +124,16 @@ impl<N: Network> CallTrait<N> for Call<N> {
                 registers.tvk()?,
             )?
         } else if let Ok(function) = substack.program().get_function(resource) {
+            eprintln!("  [Call::evaluate] Found function => evaluating function: {}", function.name());
             if function.inputs().len() != inputs.len() {
                 bail!("Expected {} inputs, found {}", function.inputs().len(), inputs.len())
             }
-            eprintln!(
-                "DEBUG: [evaluate] found a function => evaluating function: {}",
-                function.name()
-            );
             let console_caller = Some(*stack.program_id());
+            // [EXTRA LOG] or we patch evaluate_function to add logs. 
             let response = substack.evaluate_function::<A>(registers.call_stack(), console_caller)?;
             response.outputs().to_vec()
         } else {
-            bail!(
-                "DEBUG: [evaluate] Call operator '{:?}' is invalid or unsupported.",
-                self.operator()
-            )
+            bail!("  [Call::evaluate] Operator '{:?}' is invalid or unsupported.", self.operator())
         };
         lap!(timer, "Computed outputs");
 
@@ -169,8 +164,12 @@ impl<N: Network> CallTrait<N> for Call<N> {
     ) -> Result<()> {
         let timer = timer!("Call::execute");
 
-        eprintln!("DEBUG2: [execute] operator = {:?}", self.operator());
-        eprintln!("DEBUG2: [execute] call stack length = {}", registers.call_stack().request_count());
+        eprintln!(
+            "\n[Call::execute] operator = {:?}, call stack request_count = {}",
+            self.operator(),
+            registers.call_stack().request_count()
+        );
+
         // 1. Load the operand values (circuit-level).
         let inputs: Vec<_> = self
             .operands()
@@ -182,14 +181,14 @@ impl<N: Network> CallTrait<N> for Call<N> {
         let (substack, resource) = match self.operator() {
             CallOperator::Locator(locator) => {
                 eprintln!(
-                    "DEBUG: [execute] Found a locator => substack = {}, resource = {}",
+                    "  [Call::execute] Found a locator => substack = {}, resource = {}",
                     locator.program_id(),
                     locator.resource()
                 );
                 (stack.get_external_stack(locator.program_id())?.as_ref(), locator.resource())
             }
             CallOperator::Resource(resource) => {
-                eprintln!("DEBUG: [execute] Found a resource => resource = {resource}");
+                eprintln!("  [Call::execute] Found a resource => resource = {resource}");
                 (stack, resource)
             }
         };
@@ -197,7 +196,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
         // 3. Retrieve the root TVK (if any).
         let root_tvk = registers.root_tvk().ok();
-        eprintln!("DEBUG: [execute] root_tvk = {root_tvk:?}");
+        eprintln!("  [Call::execute] root_tvk = {root_tvk:?}");
 
         // 4. Handle top-level logic based on the call stack mode.
         let (request, response) = match registers.call_stack() {
@@ -206,7 +205,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
             // ------------------------------------------------
             CallStack::Authorize(_, private_key, authorization)
             | CallStack::Synthesize(_, private_key, authorization) => {
-                eprintln!("DEBUG: [execute] => in Authorize or Synthesize branch");
+                eprintln!("  [Call::execute] => in Authorize or Synthesize branch");
                 let function = substack.get_function_ref(resource)?;
                 let console_inputs: Vec<Value<N>> = inputs
                     .iter()
@@ -214,7 +213,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     .collect();
 
                 eprintln!(
-                    "DEBUG: [execute] Building request for function '{}' with {} console inputs",
+                    "  [Call::execute] Building request for function '{}' with {} console inputs",
                     function.name(),
                     console_inputs.len()
                 );
@@ -228,17 +227,18 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     /* is_root = */ false,
                     rng,
                 )?;
-                eprintln!("DEBUG: [execute] Pushing request onto call stack => {request:?}");
 
+                eprintln!("  [Call::execute] Pushing request onto call stack => {request:?}");
                 {
                     let mut call_stack = registers.call_stack();
                     call_stack.push(request.clone())?;
                     authorization.push(request.clone());
                 }
 
-                if false {
-                    // Real sub-circuit (if you want one for top-level)
-                    eprintln!("DEBUG: [execute] Building real sub-circuit by calling substack.execute_function");
+                // If you want a real sub-circuit for top-level calls:
+                let is_top_level = false; // or true, if you prefer
+                if is_top_level {
+                    eprintln!("  [Call::execute] Building real sub-circuit => call substack.execute_function");
                     let mut call_stack = registers.call_stack();
                     let response = substack.execute_function::<A, _>(
                         call_stack,
@@ -248,10 +248,12 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     )?;
                     (request, response)
                 } else {
-                    // Nested calls => skip circuit build, do evaluate_function for speed
-                    eprintln!("DEBUG: [execute] Skipping sub-circuit => calling evaluate_function instead");
-                    let mut call_stack = registers.call_stack();
-                    let response = substack.evaluate_function::<A>(call_stack, Some(*stack.program_id()))?;
+                    eprintln!("  [Call::execute] Skipping sub-circuit => replicate call_stack & call evaluate_function");
+                    // IMPORTANT: we replicate and also ensure the request is present.
+                    let mut sub_call_stack = registers.call_stack().replicate();
+                    sub_call_stack.push(request.clone())?;  
+                    
+                    let response = substack.evaluate_function::<A>(sub_call_stack, Some(*stack.program_id()))?;
                     (request, response)
                 }
             }
@@ -260,7 +262,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
             // (b) CheckDeployment
             // ------------------------------------------------
             CallStack::CheckDeployment(_, private_key, ..) => {
-                eprintln!("DEBUG: [execute] => in CheckDeployment branch");
+                eprintln!("  [Call::execute] => in CheckDeployment branch");
                 let function = substack.get_function_ref(resource)?;
 
                 // Convert circuit inputs to console.
@@ -270,7 +272,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     .collect();
 
                 eprintln!(
-                    "DEBUG: [execute] Building dummy request for function '{}' with {} console inputs",
+                    "  [Call::execute] Building dummy request for function '{}' with {} console inputs",
                     function.name(),
                     console_inputs.len()
                 );
@@ -284,10 +286,10 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     /* is_root = */ false,
                     rng,
                 )?;
+                eprintln!("  [Call::execute] pushing dummy request => {request:?}");
 
-                // *** push the request so that subsequent code can see it in the call stack, if needed ***
                 {
-                    eprintln!("DEBUG: [execute] pushing dummy request onto call stack => {request:?}");
+                    // *** push the request so if substack calls pop/peek it can find it ***
                     let mut call_stack = registers.call_stack();
                     call_stack.push(request.clone())?;
                 }
@@ -298,6 +300,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     .outputs()
                     .iter()
                     .map(|output| {
+                        eprintln!("  [Call::execute] sampling dummy value for output operand = {:?}", output.operand());
                         stack.sample_value(&address, output.value_type(), rng)
                     })
                     .collect::<Result<Vec<_>>>()?;
@@ -324,7 +327,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     &output_registers,
                 )?;
 
-                eprintln!("DEBUG: [execute] Built dummy response => {response:?}");
+                eprintln!("  [Call::execute] Built dummy response => {response:?}");
                 (request, response)
             }
 
@@ -332,23 +335,22 @@ impl<N: Network> CallTrait<N> for Call<N> {
             // (c) PackageRun
             // ------------------------------------------------
             CallStack::PackageRun(_, private_key, ..) => {
-                eprintln!("DEBUG: [execute] => in PackageRun branch");
-                unimplemented!("Existing PackageRun logic here (if needed).")
+                eprintln!("  [Call::execute] => in PackageRun branch");
+                unimplemented!("If needed, add your logic or push a request here as well.")
             }
 
             // ------------------------------------------------
             // (d) Evaluate or Execute
             // ------------------------------------------------
             CallStack::Evaluate(..) | CallStack::Execute(..) => {
-                eprintln!("DEBUG: [execute] => in Evaluate/Execute branch");
-                // Possibly you want to implement your original logic,
-                // or at least push a request if you need it:
+                eprintln!("  [Call::execute] => in Evaluate/Execute branch");
+                // Possibly do your original logic or push a request if you need it.
                 unimplemented!("Your original Evaluate/Execute logic here.")
             }
         };
         lap!(timer, "Computed the request and response");
 
-        // 5. (Optional) If you do circuit injection, e.g.:
+        // 5. [Optional] Circuit injection:
         // let r1cs = A::eject_r1cs_and_reset();
         // A::inject_r1cs(r1cs);
 
