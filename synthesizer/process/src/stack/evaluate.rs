@@ -101,27 +101,39 @@ impl<N: Network> StackEvaluate<N> for Stack<N> {
     #[inline]
     fn evaluate_function<A: circuit::Aleo<Network = N>>(
         &self,
-        call_stack: CallStack<N>,
-        caller: Option<ProgramID<N>>,
+        mut call_stack: CallStack<N>,
+        console_caller: Option<ProgramID<N>>,
     ) -> Result<Response<N>> {
         let timer = timer!("Stack::evaluate_function");
 
-        // Retrieve the next request, based on the call stack mode.
-        let (request, call_stack) = match &call_stack {
-            CallStack::Evaluate(authorization) => (authorization.next()?, call_stack),
-            // If the evaluation is performed in the `Execute` mode, create a new `Evaluate` mode.
-            // This is done to ensure that evaluation during execution is performed consistently.
-            CallStack::Execute(authorization, _) => {
-                // Note: We need to replicate the authorization, so that 'execute' can call 'authorization.next()?'.
-                // This way, the authorization remains unmodified in this 'evaluate' scope.
-                let authorization = authorization.replicate();
-                let request = authorization.next()?;
-                let call_stack = CallStack::Evaluate(authorization);
+        // Ensure the global constants for the Aleo environment are initialized.
+        A::initialize_global_constants();
+        // Ensure the circuit environment is clean.
+        A::reset();
+
+        // Match on the call stack.
+        let (request, call_stack) = match &mut call_stack {
+            // Already allowed in prior PR code:
+            CallStack::Evaluate(authorization) | CallStack::Execute(authorization, ..) => {
+                let request = authorization.peek_next()?;
                 (request, call_stack)
-            }
-            _ => bail!("Illegal operation: call stack must be `Evaluate` or `Execute` in `evaluate_function`."),
+            },
+            // Already done for CheckDeployment / PackageRun in prior PR code:
+            CallStack::CheckDeployment(requests, _, _, ..)
+            | CallStack::PackageRun(requests, _, _) => {
+                let last_request = requests.last().ok_or(anyhow!("CallStack does not contain request"))?.clone();
+                (last_request, call_stack)
+            },
+            // === NEW: Now allow Synthesize mode as well. ===
+            CallStack::Synthesize(requests, _, _) => {
+                let last_request = requests.last().ok_or(anyhow!("CallStack does not contain request"))?.clone();
+                (last_request, call_stack)
+            },
+            // Otherwise, bail:
+            _ => bail!("Illegal operation: call stack must not be `Authorize` in `evaluate_function`."),
         };
-        lap!(timer, "Retrieve the next request");
+
+        lap!(timer, "Prepared for evaluation");
 
         // Ensure the network ID matches.
         ensure!(
@@ -135,12 +147,11 @@ impl<N: Network> StackEvaluate<N> for Stack<N> {
         let function = self.get_function(request.function_name())?;
         let inputs = request.inputs();
         let signer = *request.signer();
-        let (is_root, caller) = match caller {
-            // If a caller is provided, then this is an evaluation of a child function.
-            Some(caller) => (false, caller.to_address()?),
-            // If no caller is provided, then this is an evaluation of a top-level function.
+        let (is_root, actual_caller) = match console_caller {
+            Some(caller_id) => (false, caller_id.to_address()?),
             None => (true, signer),
         };
+        
         let tvk = *request.tvk();
 
         // Ensure the number of inputs matches.
@@ -160,7 +171,7 @@ impl<N: Network> StackEvaluate<N> for Stack<N> {
         // Set the transition signer.
         registers.set_signer(signer);
         // Set the transition caller.
-        registers.set_caller(caller);
+        registers.set_caller(actual_caller);
         // Set the transition view key.
         registers.set_tvk(tvk);
         lap!(timer, "Initialize the registers");
