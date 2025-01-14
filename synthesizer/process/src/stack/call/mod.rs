@@ -41,6 +41,7 @@ use synthesizer_program::{
     StackProgram,
 };
 use circuit::{Eject, Inject};
+use crate::ProgramID;
 
 /// A trait that provides `evaluate` and `execute` for `Call`.
 pub trait CallTrait<N: Network> {
@@ -190,53 +191,56 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
         // 4. Based on call stack mode, build a request & either do a real sub-circuit or a dummy approach.
         let (request, response) = match registers.call_stack() {
-            // (a) Authorize or Synthesize
-            CallStack::Authorize(_, private_key, authorization)
-            | CallStack::Synthesize(_, private_key, authorization) => {
-                eprintln!("  [Call::execute] => in Authorize or Synthesize branch");
-                let function = substack.get_function_ref(resource)?;
-                let console_inputs: Vec<Value<N>> = inputs
-                    .iter()
-                    .map(|circuit_val| circuit_val.eject_value())
-                    .collect();
+// In the "Authorize or Synthesize" branch:
+// (a) Authorize or Synthesize mode
+CallStack::Authorize(_, private_key, authorization)
+| CallStack::Synthesize(_, private_key, authorization) => {
+    eprintln!("  [Call::execute] => in Authorize or Synthesize branch");
+    let function = substack.get_function_ref(resource)?;
+    let console_inputs: Vec<Value<N>> = inputs
+        .iter()
+        .map(|circuit_val| circuit_val.eject_value())
+        .collect();
 
-                    eprintln!("  [Call::execute] function input_types = {:?}", function.input_types());
-                    eprintln!("  [Call::execute] console_inputs = {:#?}", console_inputs);
+    // 1) Look at how many requests are on the stack *before* we sign the new one.
+    let old_count = registers.call_stack().request_count();
+    let is_root_call = (old_count == 0); // 0 means no existing request => top-level
+    eprintln!("  [Call::execute] is_root_call? {} (old_count={})", is_root_call, old_count);
 
-                eprintln!("  [Call::execute] Building request => function '{}'; #console_inputs = {}",
-                          function.name(), console_inputs.len());
-                let request = Request::sign(
-                    &private_key,
-                    *substack.program_id(),
-                    *resource,
-                    console_inputs.iter(),
-                    &function.input_types(),
-                    root_tvk,
-                    /* is_root = */ false,  // Let's set `true` so it tries a real sub-circuit
-                    rng,
-                )?;
-                eprintln!("  [Call::execute] Pushing request => {request:?}");
+    // 2) Build (sign) the request with that `is_root_call`.
+    let request = Request::sign(
+        &private_key,
+        *substack.program_id(),
+        *resource,
+        console_inputs.iter(),
+        &function.input_types(),
+        root_tvk,
+        is_root_call,
+        rng,
+    )?;
+    eprintln!("  [Call::execute] Signed new request => {request:?}");
 
-                {
-                    let mut call_stack = registers.call_stack();
-                    call_stack.push(request.clone())?;
-                    authorization.push(request.clone());
-                }
+    // 3) Now push it onto the call stack.
+    {
+        let mut call_stack = registers.call_stack();
+        call_stack.push(request.clone())?;
+        authorization.push(request.clone());
+    }
 
-                // Force a real sub-circuit for each call:
-                eprintln!("  [Call::execute] => building real sub-circuit => substack.execute_function");
-                let mut call_stack = registers.call_stack().replicate();
-                call_stack.push(request.clone())?;
-                let response = substack.execute_function::<A, _>(
-                    call_stack,
-                    Some(*stack.program_id()),
-                    root_tvk,
-                    rng,
-                )?;
+    // 4) Decide if we do a real sub-circuit or skip for speed, using `is_root_call`.
+    let mut call_stack = registers.call_stack().replicate();
+    call_stack.push(request.clone())?;
 
-                (request, response)
-            }
+    let response = if is_root_call {
+        eprintln!("  [Call::execute] => top-level => building real sub-circuit => substack.execute_function");
+        substack.execute_function::<A, _>(call_stack, Some(*stack.program_id()), root_tvk, rng)?
+    } else {
+        eprintln!("  [Call::execute] => nested => skipping sub-circuit => substack.evaluate_function");
+        substack.evaluate_function::<A>(call_stack, Some(*stack.program_id()))?
+    };
 
+    (request, response)
+}
             // (b) CheckDeployment => Dummy approach
             CallStack::CheckDeployment(_, private_key, ..) => {
                 eprintln!("  [Call::execute] => in CheckDeployment branch");
