@@ -200,6 +200,9 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     .map(|circuit_val| circuit_val.eject_value())
                     .collect();
 
+                    eprintln!("  [Call::execute] function input_types = {:?}", function.input_types());
+                    eprintln!("  [Call::execute] console_inputs = {:#?}", console_inputs);
+
                 eprintln!("  [Call::execute] Building request => function '{}'; #console_inputs = {}",
                           function.name(), console_inputs.len());
                 let request = Request::sign(
@@ -243,6 +246,9 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     .iter()
                     .map(|circuit_val| circuit_val.eject_value())
                     .collect();
+
+                    eprintln!("  [Call::execute] function input_types = {:?}", function.input_types());
+                    eprintln!("  [Call::execute] console_inputs = {:#?}", console_inputs);
 
                 eprintln!("  [Call::execute] Building dummy request => function '{}'; #console_inputs = {}",
                           function.name(), console_inputs.len());
