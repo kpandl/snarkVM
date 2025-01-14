@@ -228,8 +228,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
                 match registers.call_stack() {
                     // If the circuit is in authorize or synthesize mode, then add any external calls to the stack.
-                    CallStack::Authorize(_, private_key, authorization)
-                    | CallStack::Synthesize(_, private_key, authorization) => {
+                    CallStack::Authorize(_, private_key, authorization) => {
                         // Compute the request.
                         let request = Request::sign(
                             &private_key,
@@ -256,6 +255,58 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         // Return the request and response.
                         (request, response)
                     }
+                        CallStack::Synthesize(_, private_key, ..) => {
+                                // 1. Compute the request (just like `CheckDeployment`).
+                                let request = Request::sign(
+                                    &private_key,
+                                    *substack.program_id(),
+                                    *function.name(),
+                                    inputs.iter(),
+                                    &function.input_types(),
+                                    root_tvk,
+                                    /* is_root = */ false,
+                                    rng,
+                                )?;
+                        
+                                // 2. Sample "dummy" outputs, in the same way `CheckDeployment` does.
+                                let address = Address::try_from(&private_key)?;
+                                let outputs = function
+                                    .outputs()
+                                    .iter()
+                                    .map(|output| {
+                                        // Sample a random valid `Value` of the correct type,
+                                        // rather than actually executing the function body.
+                                        substack.sample_value(&address, output.value_type(), rng)
+                                    })
+                                    .collect::<Result<Vec<_>>>()?;
+                        
+                                // 3. Map the outputs to their registers.
+                                let output_registers = function
+                                    .outputs()
+                                    .iter()
+                                    .map(|output| match output.operand() {
+                                        Operand::Register(register) => Some(register.clone()),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>();
+                        
+                                // 4. Construct the dummy `Response`.
+                                let response = crate::Response::new(
+                                    request.network_id(),
+                                    substack.program().id(),
+                                    function.name(),
+                                    request.inputs().len(),
+                                    request.tvk(),
+                                    request.tcm(),
+                                    outputs,
+                                    &function.output_types(),
+                                    &output_registers,
+                                )?;
+                        
+                                // Return the request and response.
+                                (request, response)
+                            }
+                        
                     CallStack::PackageRun(_, private_key, ..) => {
                         // Compute the request.
                         let request = Request::sign(
