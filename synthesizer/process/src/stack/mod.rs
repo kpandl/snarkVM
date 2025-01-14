@@ -171,6 +171,21 @@ impl<N: Network> CallStack<N> {
     }
 }
 
+impl<N: Network> CallStack<N> {
+    /// Returns how many requests are in the call stack.
+    pub fn request_count(&self) -> usize {
+        match self {
+            CallStack::Authorize(requests, ..)
+            | CallStack::Synthesize(requests, ..)
+            | CallStack::CheckDeployment(requests, ..)
+            | CallStack::PackageRun(requests, ..) => requests.len(),
+
+            CallStack::Evaluate(authorization)
+            | CallStack::Execute(authorization, ..) => authorization.len(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Stack<N: Network> {
     /// The program (record types, structs, functions).
