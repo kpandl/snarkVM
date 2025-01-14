@@ -233,12 +233,12 @@ CallStack::Authorize(_, private_key, authorization)
 
     let response = if is_root_call {
         eprintln!("  [Call::execute] => top-level => building real sub-circuit => substack.execute_function");
-        substack.execute_function::<A, _>(call_stack, Some(*stack.program_id()), root_tvk, rng)?
+        substack.execute_function::<A, _>(call_stack, None, root_tvk, rng)? 
     } else {
-        eprintln!("  [Call::execute] => nested => skipping sub-circuit => substack.evaluate_function");
+        eprintln!("  [Call::execute] => nested => skipping => substack.evaluate_function");
         substack.evaluate_function::<A>(call_stack, Some(*stack.program_id()))?
     };
-
+    
     (request, response)
 }
             // (b) CheckDeployment => Dummy approach
