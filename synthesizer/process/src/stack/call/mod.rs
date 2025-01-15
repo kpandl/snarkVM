@@ -34,6 +34,7 @@ use synthesizer_program::{
     StackProgram,
 };
 
+use std::time::Instant;
 use log::info;
 
 pub trait CallTrait<N: Network> {
@@ -296,7 +297,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             info!("At the start of synthesize");
                             eprintln!("At the start of synthesize");
                             // start a timer to measure how long it takes to synthesize
-                            let timer = timer!("Stack::synthesize");
+                            let start = Instant::now();
                                 // 1. Compute the request (just like `CheckDeployment`).
                                 let request = Request::sign(
                                     &private_key,
@@ -343,13 +344,12 @@ impl<N: Network> CallTrait<N> for Call<N> {
                                     &function.output_types(),
                                     &output_registers,
                                 )?;
-                        info!("At the end of synthesize");
 
                         // measure how long it takes to synthesize
-                        finish!(timer, "Stack::synthesize");
-                        
+                        let duration = start.elapsed();
+                        info!("At the end of synthesize - elapsed time: {:?}", duration);
+                        eprintln!("At the end of synthesize - elapsed time: {:?}", duration);                        
 
-                        eprintln!("At the end of synthesize");
                                 // Return the request and response.
                                 (request, response)
                             }
