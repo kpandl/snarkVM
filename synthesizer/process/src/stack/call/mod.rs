@@ -34,6 +34,8 @@ use synthesizer_program::{
     StackProgram,
 };
 
+use log::info;
+
 pub trait CallTrait<N: Network> {
     /// Evaluates the instruction.
     fn evaluate<A: circuit::Aleo<Network = N>>(
@@ -230,6 +232,8 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     // If the circuit is in authorize or synthesize mode, then add any external calls to the stack.
                     
                     CallStack::Authorize(_, private_key, authorization) => {
+                        // log that we are at start of authorize
+                        info!("At the start of authorize");
                         // 1) sign the request.
                         let request = Request::sign(
                             &private_key,
@@ -278,12 +282,15 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         call_stack.push(request.clone())?;
                         // Also add it to the authorization object.
                         authorization.push(request.clone());
+
+                        info!("At the end of authorize");
                 
                         // 6) Return (request, response) *without* substack.execute_function.
                         (request, response)
                     }
 
                         CallStack::Synthesize(_, private_key, ..) => {
+                            info!("At the start of synthesize");
                                 // 1. Compute the request (just like `CheckDeployment`).
                                 let request = Request::sign(
                                     &private_key,
@@ -330,7 +337,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                                     &function.output_types(),
                                     &output_registers,
                                 )?;
-                        
+                        info!("At the end of synthesize");
                                 // Return the request and response.
                                 (request, response)
                             }

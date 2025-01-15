@@ -3445,6 +3445,7 @@ dependencies = [
  "colored",
  "criterion",
  "indexmap 2.2.6",
+ "log",
  "once_cell",
  "parking_lot",
  "rand",

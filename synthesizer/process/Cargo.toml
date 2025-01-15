@@ -152,3 +152,6 @@ path = "../../ledger/test-helpers"
 
 [dev-dependencies.tempfile]
 version = "3"
+
+[dependencies]
+log = "0.4"
