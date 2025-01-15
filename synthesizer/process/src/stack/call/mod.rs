@@ -295,6 +295,8 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         CallStack::Synthesize(_, private_key, ..) => {
                             info!("At the start of synthesize");
                             eprintln!("At the start of synthesize");
+                            // start a timer to measure how long it takes to synthesize
+                            let timer = timer!("Stack::synthesize");
                                 // 1. Compute the request (just like `CheckDeployment`).
                                 let request = Request::sign(
                                     &private_key,
@@ -342,6 +344,11 @@ impl<N: Network> CallTrait<N> for Call<N> {
                                     &output_registers,
                                 )?;
                         info!("At the end of synthesize");
+
+                        // measure how long it takes to synthesize
+                        finish!(timer, "Stack::synthesize");
+                        
+
                         eprintln!("At the end of synthesize");
                                 // Return the request and response.
                                 (request, response)
@@ -349,6 +356,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         
                     CallStack::PackageRun(_, private_key, ..) => {
                         // Compute the request.
+                        eprintln!("fyi - in PackageRun");
                         let request = Request::sign(
                             &private_key,
                             *substack.program_id(),
@@ -372,6 +380,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         (request, response)
                     }
                     CallStack::CheckDeployment(_, private_key, ..) => {
+                        eprintln!("fyi - in CheckDeployment");
                         // Compute the request.
                         let request = Request::sign(
                             &private_key,
@@ -443,6 +452,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     }
                     // If the circuit is in execute mode, then evaluate and execute the instructions.
                     CallStack::Execute(authorization, ..) => {
+                        eprintln!("fyi - in Execute");
                         // Retrieve the next request (without popping it).
                         let request = authorization.peek_next()?;
                         // Ensure the inputs match the original inputs.
