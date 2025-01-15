@@ -234,6 +234,8 @@ impl<N: Network> CallTrait<N> for Call<N> {
                     CallStack::Authorize(_, private_key, authorization) => {
                         // log that we are at start of authorize
                         info!("At the start of authorize");
+                        // do the same with eprintln!
+                        eprintln!("At the start of authorize");
                         // 1) sign the request.
                         let request = Request::sign(
                             &private_key,
@@ -284,6 +286,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         authorization.push(request.clone());
 
                         info!("At the end of authorize");
+                        eprintln!("At the end of authorize");
                 
                         // 6) Return (request, response) *without* substack.execute_function.
                         (request, response)
@@ -291,6 +294,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
                         CallStack::Synthesize(_, private_key, ..) => {
                             info!("At the start of synthesize");
+                            eprintln!("At the start of synthesize");
                                 // 1. Compute the request (just like `CheckDeployment`).
                                 let request = Request::sign(
                                     &private_key,
@@ -338,6 +342,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                                     &output_registers,
                                 )?;
                         info!("At the end of synthesize");
+                        eprintln!("At the end of synthesize");
                                 // Return the request and response.
                                 (request, response)
                             }
