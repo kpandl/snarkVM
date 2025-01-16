@@ -255,57 +255,76 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         // Return the request and response.
                         (request, response)
                     }
-                        CallStack::Synthesize(_, private_key, ..) => {
-                                // 1. Compute the request (just like `CheckDeployment`).
-                                let request = Request::sign(
-                                    &private_key,
-                                    *substack.program_id(),
-                                    *function.name(),
-                                    inputs.iter(),
-                                    &function.input_types(),
-                                    root_tvk,
-                                    /* is_root = */ false,
-                                    rng,
-                                )?;
-                        
-                                // 2. Sample "dummy" outputs, in the same way `CheckDeployment` does.
-                                let address = Address::try_from(&private_key)?;
-                                let outputs = function
-                                    .outputs()
-                                    .iter()
-                                    .map(|output| {
-                                        // Sample a random valid `Value` of the correct type,
-                                        // rather than actually executing the function body.
-                                        substack.sample_value(&address, output.value_type(), rng)
-                                    })
-                                    .collect::<Result<Vec<_>>>()?;
-                        
-                                // 3. Map the outputs to their registers.
-                                let output_registers = function
-                                    .outputs()
-                                    .iter()
-                                    .map(|output| match output.operand() {
-                                        Operand::Register(register) => Some(register.clone()),
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>();
-                        
-                                // 4. Construct the dummy `Response`.
-                                let response = crate::Response::new(
-                                    request.network_id(),
-                                    substack.program().id(),
-                                    function.name(),
-                                    request.inputs().len(),
-                                    request.tvk(),
-                                    request.tcm(),
-                                    outputs,
-                                    &function.output_types(),
-                                    &output_registers,
-                                )?;
-                        
-                                // Return the request and response.
-                                (request, response)
-                            }
+                    
+                    CallStack::Synthesize(_, private_key, ..) => {
+                        // 1. Compute the request
+                        let request = Request::sign(
+                            &private_key,
+                            *substack.program_id(),
+                            *function.name(),
+                            inputs.iter(),
+                            &function.input_types(),
+                            root_tvk,
+                            /* is_root = */ false,
+                            rng,
+                        )?;
+                    
+                        // 2. Prepare the address
+                        let address = Address::try_from(&private_key)?;
+                    
+                        // 3. For each output, if it's a record, compute the randomizer & nonce
+                        let outputs = function
+                            .outputs()
+                            .iter()
+                            .map(|output| match output.value_type() {
+                                ValueType::Record(record_name) => {
+                                    let index = match output.operand() {
+                                        Operand::Register(Register::Locator(index)) => Field::from_u64(*index),
+                                        _ => bail!("Expected a `Register::Locator` operand for a record output."),
+                                    };
+                                    // Compute the randomizer
+                                    let randomizer = N::hash_to_scalar_psd2(&[*request.tvk(), index])?;
+                                    // Construct the record nonce from that randomizer
+                                    let record_nonce = N::g_scalar_multiply(&randomizer);
+                                    // Sample the record with that nonce
+                                    Ok(Value::Record(substack.sample_record(
+                                        &address,
+                                        record_name,
+                                        record_nonce,
+                                        rng,
+                                    )?))
+                                }
+                                _ => {
+                                    // For plaintext, future, etc, fallback to normal sample_value
+                                    substack.sample_value(&address, output.value_type(), rng)
+                                }
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+                    
+                        // 4. Construct the dummy Response from these outputs
+                        let output_registers = function
+                            .outputs()
+                            .iter()
+                            .map(|output| match output.operand() {
+                                Operand::Register(register) => Some(register.clone()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+                    
+                        let response = crate::Response::new(
+                            request.network_id(),
+                            substack.program().id(),
+                            function.name(),
+                            request.inputs().len(),
+                            request.tvk(),
+                            request.tcm(),
+                            outputs,
+                            &function.output_types(),
+                            &output_registers,
+                        )?;
+                    
+                        (request, response)
+                    }
                         
                     CallStack::PackageRun(_, private_key, ..) => {
                         // Compute the request.
