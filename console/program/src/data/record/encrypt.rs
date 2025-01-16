@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use super::*;
+use std::backtrace::Backtrace;
 
 impl<N: Network> Record<N, Plaintext<N>> {
     /// Encrypts `self` for the record owner under the given randomizer.
@@ -25,7 +26,11 @@ impl<N: Network> Record<N, Plaintext<N>> {
             // Encrypt the record.
             self.encrypt_symmetric_unchecked(&record_view_key)
         } else {
-            bail!("Illegal operation: Record::encrypt() randomizer does not correspond to the record nonce.")
+            let backtrace = Backtrace::force_capture();
+            bail!(
+                "Illegal operation: Record::encrypt() randomizer does not correspond to the record nonce.\nBacktrace:\n{}",
+                backtrace
+            );
         }
     }
 
