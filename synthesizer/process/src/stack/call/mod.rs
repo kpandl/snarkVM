@@ -228,8 +228,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
                 match registers.call_stack() {
                     // If the circuit is in authorize or synthesize mode, then add any external calls to the stack.
-                    CallStack::Authorize(_, private_key, authorization)
-                    | CallStack::Synthesize(_, private_key, authorization) => {
+                    CallStack::Authorize(_, private_key, authorization) => {
                         // Compute the request.
                         let request = Request::sign(
                             &private_key,
@@ -254,6 +253,72 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
 
                         // Return the request and response.
+                        (request, response)
+                    }
+                    CallStack::Synthesize(_, private_key, ..) => {
+                        // Compute the request.
+                        let request = Request::sign(
+                            &private_key,
+                            *substack.program_id(),
+                            *function.name(),
+                            inputs.iter(),
+                            &function.input_types(),
+                            root_tvk,
+                            false,
+                            rng,
+                        )?;
+
+                        // Compute the address.
+                        let address = Address::try_from(&private_key)?;
+
+                        // For each output, if it's a record, compute the randomizer and nonce.
+                        let outputs = function
+                            .outputs()
+                            .iter()
+                            .map(|output| match output.value_type() {
+                                ValueType::Record(record_name) => {
+                                    let index = match output.operand() {
+                                        Operand::Register(Register::Locator(index)) => Field::from_u64(*index),
+                                        _ => bail!("Expected a `Register::Locator` operand for a record output."),
+                                    };
+                                    // Compute the randomizer.
+                                    let randomizer = N::hash_to_scalar_psd2(&[*request.tvk(), index])?;
+                                    // Construct the record nonce from that randomizer.
+                                    let record_nonce = N::g_scalar_multiply(&randomizer);
+                                    // Sample the record with that nonce.
+                                    Ok(Value::Record(substack.sample_record(
+                                        &address,
+                                        record_name,
+                                        record_nonce,
+                                        rng,
+                                    )?))
+                                }
+                                _ => substack.sample_value(&address, output.value_type(), rng),
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+
+                        // Construct the dummy response from these outputs.
+                        let output_registers = function
+                            .outputs()
+                            .iter()
+                            .map(|output| match output.operand() {
+                                Operand::Register(register) => Some(register.clone()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+
+                        let response = crate::Response::new(
+                            request.network_id(),
+                            substack.program().id(),
+                            function.name(),
+                            request.inputs().len(),
+                            request.tvk(),
+                            request.tcm(),
+                            outputs,
+                            &function.output_types(),
+                            &output_registers,
+                        )?;
+
                         (request, response)
                     }
                     CallStack::PackageRun(_, private_key, ..) => {
