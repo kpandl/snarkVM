@@ -316,6 +316,12 @@ impl<N: Network> StackProgram<N> for Stack<N> {
             .ok_or_else(|| anyhow!("Function '{function_name}' does not exist"))
     }
 
+    /// Returns true if the proving key for the given function name already exists in this stack.
+    #[inline]
+    fn has_proving_key(&self, function_name: &Identifier<N>) -> bool {
+        self.contains_proving_key(function_name)
+    }
+
     /// Returns a value for the given value type.
     fn sample_value<R: Rng + CryptoRng>(
         &self,

@@ -96,6 +96,9 @@ pub trait StackProgram<N: Network> {
     /// Returns the expected number of calls for the given function name.
     fn get_number_of_calls(&self, function_name: &Identifier<N>) -> Result<usize>;
 
+    /// Returns true if the proving key for the given function exists.
+    fn has_proving_key(&self, function_name: &Identifier<N>) -> bool;
+
     /// Samples a value for the given value_type.
     fn sample_value<R: Rng + CryptoRng>(
         &self,

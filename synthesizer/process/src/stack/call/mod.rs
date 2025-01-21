@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{CallStack, Registers, RegistersCall, StackEvaluate, StackExecute, stack::Address};
+use crate::{CallStack, Registers, RegistersCall, Stack, StackEvaluate, StackExecute, stack::Address};
 use aleo_std::prelude::{finish, lap, timer};
 use console::{
     account::Field,
@@ -45,7 +45,7 @@ pub trait CallTrait<N: Network> {
     /// Executes the instruction.
     fn execute<A: circuit::Aleo<Network = N>, R: CryptoRng + Rng>(
         &self,
-        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
+        stack: &Stack<N>,
         registers: &mut (
                  impl RegistersCall<N>
                  + RegistersSigner<N>
@@ -138,7 +138,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
     #[inline]
     fn execute<A: circuit::Aleo<Network = N>, R: Rng + CryptoRng>(
         &self,
-        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
+        stack: &Stack<N>,
         registers: &mut (
                  impl RegistersCall<N>
                  + RegistersSigner<N>
@@ -225,9 +225,11 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
                 // Set the (console) caller.
                 let console_caller = Some(*stack.program_id());
+                // Check if the substack has a proving key or not.
+                let pk_missing = !substack.has_proving_key(function.name());
 
                 match registers.call_stack() {
-                    // If the circuit is in authorize or synthesize mode, then add any external calls to the stack.
+                    // If the circuit is in authorize mode, then add any external calls to the stack.
                     CallStack::Authorize(_, private_key, authorization) => {
                         // Compute the request.
                         let request = Request::sign(
@@ -248,6 +250,32 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
                         // Add the request to the authorization.
                         authorization.push(request.clone());
+
+                        // Execute the request.
+                        let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
+
+                        // Return the request and response.
+                        (request, response)
+                    }
+                    // If the proving key is missing, build real sub-circuit.
+                    CallStack::Synthesize(_, private_key, ..) if pk_missing => {
+                        // Compute the request.
+                        let request = Request::sign(
+                            &private_key,
+                            *substack.program_id(),
+                            *function.name(),
+                            inputs.iter(),
+                            &function.input_types(),
+                            root_tvk,
+                            false,
+                            rng,
+                        )?;
+
+                        // Retrieve the call stack.
+                        let mut call_stack = registers.call_stack();
+
+                        // Push the request onto the call stack.
+                        call_stack.push(request.clone())?;
 
                         // Execute the request.
                         let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
