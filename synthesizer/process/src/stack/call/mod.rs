@@ -310,18 +310,16 @@ impl<N: Network> CallTrait<N> for Call<N> {
                                         Operand::Register(Register::Locator(index)) => Field::from_u64(*index),
                                         _ => bail!("Expected a `Register::Locator` operand for a record output."),
                                     };
-                                    // Compute the randomizer.
-                                    let randomizer = N::hash_to_scalar_psd2(&[*request.tvk(), index])?;
-                                    // Construct the record nonce from that randomizer.
-                                    let record_nonce = N::g_scalar_multiply(&randomizer);
-                                    // Sample the record with that nonce.
-                                    Ok(Value::Record(substack.sample_record(
+                                    // Sample the record.
+                                    Ok(Value::Record(substack.sample_record_using_tvk(
                                         &address,
                                         record_name,
-                                        record_nonce,
+                                        *request.tvk(),
+                                        index,
                                         rng,
                                     )?))
                                 }
+                                // For non-record outputs, call sample_value.
                                 _ => substack.sample_value(&address, output.value_type(), rng),
                             })
                             .collect::<Result<Vec<_>>>()?;

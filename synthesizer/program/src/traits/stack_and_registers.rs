@@ -115,6 +115,16 @@ pub trait StackProgram<N: Network> {
         record_nonce: Group<N>,
         rng: &mut R,
     ) -> Result<Record<N, Plaintext<N>>>;
+
+    /// Returns a record for the given record name, deriving the nonce from tvk and index.
+    fn sample_record_using_tvk<R: Rng + CryptoRng>(
+        &self,
+        burner_address: &Address<N>,
+        record_name: &Identifier<N>,
+        tvk: Field<N>,
+        index: Field<N>,
+        rng: &mut R,
+    ) -> Result<Record<N, Plaintext<N>>>;
 }
 
 pub trait FinalizeRegistersState<N: Network> {

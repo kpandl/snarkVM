@@ -361,6 +361,23 @@ impl<N: Network> StackProgram<N> for Stack<N> {
         // Return the record.
         Ok(record)
     }
+
+    /// Returns a record for the given record name, deriving the nonce from tvk and index.
+    fn sample_record_using_tvk<R: Rng + CryptoRng>(
+        &self,
+        burner_address: &Address<N>,
+        record_name: &Identifier<N>,
+        tvk: Field<N>,
+        index: Field<N>,
+        rng: &mut R,
+    ) -> Result<Record<N, Plaintext<N>>> {
+        // Compute the randomizer.
+        let randomizer = N::hash_to_scalar_psd2(&[tvk, index])?;
+        // Construct the record nonce from that randomizer.
+        let record_nonce = N::g_scalar_multiply(&randomizer);
+        // Sample the record with that nonce.
+        self.sample_record(burner_address, record_name, record_nonce, rng)
+    }
 }
 
 impl<N: Network> StackProgramTypes<N> for Stack<N> {
