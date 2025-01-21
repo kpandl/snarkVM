@@ -229,11 +229,15 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
                 // Set the (console) caller.
                 let console_caller = Some(*stack.program_id());
+                // 1) Check if the substack has a proving key or not:
+                let pk_missing = !substack.has_proving_key(function.name()); // manager's style
 
                 match registers.call_stack() {
-                    // If the circuit is in authorize or synthesize mode, then add any external calls to the stack.
+                    // ----------------------------------------------------------------
+                    // Existing arms for Authorize, Evaluate, Execute, etc remain same.
+                    // ----------------------------------------------------------------
                     CallStack::Authorize(_, private_key, authorization) => {
-                        // Compute the request.
+                        // (unchanged) Full circuit for authorize.
                         let request = Request::sign(
                             &private_key,
                             *substack.program_id(),
@@ -244,23 +248,44 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             is_root,
                             rng,
                         )?;
-
-                        // Retrieve the call stack.
                         let mut call_stack = registers.call_stack();
-                        // Push the request onto the call stack.
                         call_stack.push(request.clone())?;
-
-                        // Add the request to the authorization.
                         authorization.push(request.clone());
-
-                        // Execute the request.
                         let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
-
-                        // Return the request and response.
                         (request, response)
                     }
+
+                    // ----------------------------------------------------------------
+                    // 2) Synthesize: Now use match guards for pk_missing
+                    // ----------------------------------------------------------------
+
+                    // (a) If PK is missing, build real sub-circuit (previous "else" logic).
+                    CallStack::Synthesize(_, private_key, ..) if pk_missing => {
+                        // sign the request
+                        let request = Request::sign(
+                            &private_key,
+                            *substack.program_id(),
+                            *function.name(),
+                            inputs.iter(),
+                            &function.input_types(),
+                            root_tvk,
+                            /* is_root = */ false,
+                            rng,
+                        )?;
+                        // Build sub-circuit to produce PK
+                        let mut call_stack = registers.call_stack();
+                        call_stack.push(request.clone())?;
+
+                        // (Optionally) push the request to your "Synthesize" data structure or assignments.
+                        // e.g. `assignments.push(request.clone())?;`
+
+                        let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
+                        (request, response)
+                    }
+
+                    // (b) Otherwise, short-circuit (previous "if has_pk" logic).
                     CallStack::Synthesize(_, private_key, ..) => {
-                        // 1) sign the request
+                        // sign the request
                         let request = Request::sign(
                             &private_key,
                             *substack.program_id(),
@@ -272,76 +297,55 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             rng,
                         )?;
 
-                        // 2) Check if we already have a PK
-                        let has_pk = substack.has_proving_key(function.name());
-                        if has_pk {
-                            // ----------------------------------------------
-                            // (A) We already have a proving key: short-circuit
-                            // ----------------------------------------------
+                        let address = Address::try_from(&private_key)?;
+                        let outputs = function
+                            .outputs()
+                            .iter()
+                            .map(|output| match output.value_type() {
+                                ValueType::Record(record_name) => {
+                                    let index = match output.operand() {
+                                        Operand::Register(Register::Locator(i)) => Field::from_u64(*i),
+                                        _ => bail!("Expected a `Register::Locator` operand for a record output."),
+                                    };
+                                    let randomizer = N::hash_to_scalar_psd2(&[*request.tvk(), index])?;
+                                    let record_nonce = N::g_scalar_multiply(&randomizer);
+                                    Ok(Value::Record(substack.sample_record(
+                                        &address,
+                                        record_name,
+                                        record_nonce,
+                                        rng,
+                                    )?))
+                                }
+                                _ => substack.sample_value(&address, output.value_type(), rng),
+                            })
+                            .collect::<Result<Vec<_>>>()?;
 
-                            let address = Address::try_from(&private_key)?;
-                            let outputs = function
-                                .outputs()
-                                .iter()
-                                .map(|output| match output.value_type() {
-                                    ValueType::Record(record_name) => {
-                                        let index = match output.operand() {
-                                            Operand::Register(Register::Locator(i)) => Field::from_u64(*i),
-                                            _ => bail!("Expected a `Register::Locator` operand for a record output."),
-                                        };
-                                        let randomizer = N::hash_to_scalar_psd2(&[*request.tvk(), index])?;
-                                        let record_nonce = N::g_scalar_multiply(&randomizer);
-                                        Ok(Value::Record(substack.sample_record(
-                                            &address,
-                                            record_name,
-                                            record_nonce,
-                                            rng,
-                                        )?))
-                                    }
-                                    _ => substack.sample_value(&address, output.value_type(), rng),
-                                })
-                                .collect::<Result<Vec<_>>>()?;
+                        let output_registers = function
+                            .outputs()
+                            .iter()
+                            .map(|o| match o.operand() {
+                                Operand::Register(reg) => Some(reg.clone()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
 
-                            let output_registers = function
-                                .outputs()
-                                .iter()
-                                .map(|o| match o.operand() {
-                                    Operand::Register(reg) => Some(reg.clone()),
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>();
-
-                            let response = crate::Response::new(
-                                request.network_id(),
-                                substack.program().id(),
-                                function.name(),
-                                request.inputs().len(),
-                                request.tvk(),
-                                request.tcm(),
-                                outputs,
-                                &function.output_types(),
-                                &output_registers,
-                            )?;
-
-                            (request, response)
-                        } else {
-                            // ----------------------------------------------
-                            // (B) Build the sub-circuit to produce the PK
-                            // ----------------------------------------------
-
-                            let mut call_stack = registers.call_stack();
-                            call_stack.push(request.clone())?;
-
-                            // If there's a data structure that accumulates requests or circuit
-                            // assignments in Synthesize mode, push the request here.
-                            // This ensures it's recognized in the final aggregator or assignment list.
-                            // e.g. `assignments.push(request.clone())?;
-
-                            let response =
-                                substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
-                            (request, response)
-                        }
+                        let response = crate::Response::new(
+                            request.network_id(),
+                            substack.program().id(),
+                            function.name(),
+                            request.inputs().len(),
+                            request.tvk(),
+                            request.tcm(),
+                            outputs,
+                            &function.output_types(),
+                            &output_registers,
+                        )?;
+                        (request, response)
                     }
+
+                    // ----------------------------------------------------------------
+                    // 3) Unchanged arms for other CallStack variants
+                    // ----------------------------------------------------------------
                     CallStack::PackageRun(_, private_key, ..) => {
                         // Compute the request.
                         let request = Request::sign(
