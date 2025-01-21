@@ -79,6 +79,7 @@ use rayon::prelude::*;
 pub type Assignments<N> = Arc<RwLock<Vec<(circuit::Assignment<<N as Environment>::Field>, CallMetrics<N>)>>>;
 
 #[derive(Clone)]
+/// Deployment related - Synthesize and CheckDeployment, then execute related Authorize (for delegated proving), Execute (local state execution, not run by validator. because they just verify a zk snark)
 pub enum CallStack<N: Network> {
     Authorize(Vec<Request<N>>, PrivateKey<N>, Authorization<N>),
     Synthesize(Vec<Request<N>>, PrivateKey<N>, Authorization<N>),
@@ -314,6 +315,12 @@ impl<N: Network> StackProgram<N> for Stack<N> {
             .get(function_name)
             .copied()
             .ok_or_else(|| anyhow!("Function '{function_name}' does not exist"))
+    }
+
+    /// Returns true if the proving key for the given function name already exists in this stack.
+    #[inline]
+    fn has_proving_key(&self, function_name: &Identifier<N>) -> bool {
+        self.contains_proving_key(function_name)
     }
 
     /// Returns a value for the given value type.
