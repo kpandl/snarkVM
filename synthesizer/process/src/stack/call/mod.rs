@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{CallStack, Registers, RegistersCall, StackEvaluate, StackExecute, stack::Address};
+use crate::{CallStack, Registers, RegistersCall, Stack, StackEvaluate, StackExecute, stack::Address};
 use aleo_std::prelude::{finish, lap, timer};
 use console::{
     account::Field,
@@ -45,7 +45,7 @@ pub trait CallTrait<N: Network> {
     /// Executes the instruction.
     fn execute<A: circuit::Aleo<Network = N>, R: CryptoRng + Rng>(
         &self,
-        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
+        stack: &Stack<N>,
         registers: &mut (
                  impl RegistersCall<N>
                  + RegistersSigner<N>
@@ -138,7 +138,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
     #[inline]
     fn execute<A: circuit::Aleo<Network = N>, R: Rng + CryptoRng>(
         &self,
-        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
+        stack: &Stack<N>,
         registers: &mut (
                  impl RegistersCall<N>
                  + RegistersSigner<N>
@@ -156,32 +156,24 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
         // Retrieve the substack and resource.
         let (substack, resource) = match self.operator() {
-            // Retrieve the call stack and resource from the locator.
+            // If it's an external call, fetch the Arc<Stack<N>>, then get &Stack<N>.
             CallOperator::Locator(locator) => {
-                // Check the external call locator.
-                let function_name = locator.name().to_string();
-                let is_credits_program = &locator.program_id().to_string() == "credits.aleo";
-                let is_fee_private = &function_name == "fee_private";
-                let is_fee_public = &function_name == "fee_public";
+                // Retrieve the Arc<Stack<N>> from the main stack.
+                let arc_substack = stack.get_external_stack(locator.program_id())?;
+                // Deref the Arc -> &Stack<N>.
+                let substack: &Stack<N> = arc_substack.as_ref();
 
-                // Ensure the external call is not to 'credits.aleo/fee_private' or 'credits.aleo/fee_public'.
-                if is_credits_program && (is_fee_private || is_fee_public) {
-                    bail!("Cannot perform an external call to 'credits.aleo/fee_private' or 'credits.aleo/fee_public'.")
-                } else {
-                    (stack.get_external_stack(locator.program_id())?.as_ref(), locator.resource())
-                }
+                (substack, locator.resource())
             }
+            // If the function is local to 'stack',
+            // you can directly treat 'stack' as &Stack<N> (by upcasting).
             CallOperator::Resource(resource) => {
-                // TODO (howardwu): Revisit this decision to forbid calling internal functions. A record cannot be spent again.
-                //  But there are legitimate uses for passing a record through to an internal function.
-                //  We could invoke the internal function without a state transition, but need to match visibility.
-                if stack.program().contains_function(resource) {
-                    bail!("Cannot call '{resource}'. Use a closure ('closure {resource}:') instead.")
-                }
-
-                (stack, resource)
+                // Safety check: If 'stack.program()' has this function, it must be the same stack.
+                let substack: &Stack<N> = stack; // Coerce the trait object to a &Stack<N>.
+                (substack, resource)
             }
         };
+
         lap!(timer, "Retrieve the substack and resource");
 
         // If we are not handling the root request, retrieve the root request's tvk
@@ -268,58 +260,70 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             rng,
                         )?;
 
-                        // Compute the address.
-                        let address = Address::try_from(&private_key)?;
+                        // Check if we already have a proving key.
+                        if substack.contains_proving_key(function.name()) {
+                            // Short-circuit with dummy outputs
+                            let address = Address::try_from(&private_key)?;
+                            // For each output, if it's a record, compute the randomizer and nonce.
+                            let outputs = function
+                                .outputs()
+                                .iter()
+                                .map(|output| {
+                                    match output.value_type() {
+                                        ValueType::Record(record_name) => {
+                                            let index = match output.operand() {
+                                                Operand::Register(Register::Locator(i)) => Field::from_u64(*i),
+                                                _ => {
+                                                    bail!("Expected a `Register::Locator` operand for a record output.")
+                                                }
+                                            };
+                                            // Compute the randomizer.
+                                            let randomizer = N::hash_to_scalar_psd2(&[*request.tvk(), index])?;
+                                            // Construct the record nonce from that randomizer.
+                                            let record_nonce = N::g_scalar_multiply(&randomizer);
+                                            // Sample the record with that nonce.
+                                            Ok(Value::Record(substack.sample_record(
+                                                &address,
+                                                record_name,
+                                                record_nonce,
+                                                rng,
+                                            )?))
+                                        }
+                                        _ => substack.sample_value(&address, output.value_type(), rng),
+                                    }
+                                })
+                                .collect::<Result<Vec<_>>>()?;
+                            // Construct the dummy response from these outputs.
+                            let output_registers = function
+                                .outputs()
+                                .iter()
+                                .map(|o| match o.operand() {
+                                    Operand::Register(reg) => Some(reg.clone()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>();
+                            let response = crate::Response::new(
+                                request.network_id(),
+                                substack.program().id(),
+                                function.name(),
+                                request.inputs().len(),
+                                request.tvk(),
+                                request.tcm(),
+                                outputs,
+                                &function.output_types(),
+                                &output_registers,
+                            )?;
+                            (request, response)
+                        } else {
+                            // Build the sub-circuit for this function once to produce the proving key.
+                            let mut call_stack = registers.call_stack();
+                            call_stack.push(request.clone())?;
 
-                        // For each output, if it's a record, compute the randomizer and nonce.
-                        let outputs = function
-                            .outputs()
-                            .iter()
-                            .map(|output| match output.value_type() {
-                                ValueType::Record(record_name) => {
-                                    let index = match output.operand() {
-                                        Operand::Register(Register::Locator(index)) => Field::from_u64(*index),
-                                        _ => bail!("Expected a `Register::Locator` operand for a record output."),
-                                    };
-                                    // Compute the randomizer.
-                                    let randomizer = N::hash_to_scalar_psd2(&[*request.tvk(), index])?;
-                                    // Construct the record nonce from that randomizer.
-                                    let record_nonce = N::g_scalar_multiply(&randomizer);
-                                    // Sample the record with that nonce.
-                                    Ok(Value::Record(substack.sample_record(
-                                        &address,
-                                        record_name,
-                                        record_nonce,
-                                        rng,
-                                    )?))
-                                }
-                                _ => substack.sample_value(&address, output.value_type(), rng),
-                            })
-                            .collect::<Result<Vec<_>>>()?;
-
-                        // Construct the dummy response from these outputs.
-                        let output_registers = function
-                            .outputs()
-                            .iter()
-                            .map(|output| match output.operand() {
-                                Operand::Register(register) => Some(register.clone()),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>();
-
-                        let response = crate::Response::new(
-                            request.network_id(),
-                            substack.program().id(),
-                            function.name(),
-                            request.inputs().len(),
-                            request.tvk(),
-                            request.tcm(),
-                            outputs,
-                            &function.output_types(),
-                            &output_registers,
-                        )?;
-
-                        (request, response)
+                            // Push onto some Synthesize's authorization or assignment structure.
+                            let response =
+                                substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
+                            (request, response)
+                        }
                     }
                     CallStack::PackageRun(_, private_key, ..) => {
                         // Compute the request.
