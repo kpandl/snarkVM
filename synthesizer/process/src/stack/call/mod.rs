@@ -268,7 +268,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             inputs.iter(),
                             &function.input_types(),
                             root_tvk,
-                            false,
+                            is_root,
                             rng,
                         )?;
 
@@ -294,7 +294,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             inputs.iter(),
                             &function.input_types(),
                             root_tvk,
-                            false,
+                            is_root,
                             rng,
                         )?;
 
