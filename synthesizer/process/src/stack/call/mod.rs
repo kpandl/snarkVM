@@ -30,6 +30,7 @@ use synthesizer_program::{
     RegistersSignerCircuit,
     RegistersStore,
     RegistersStoreCircuit,
+    StackKeys,
     StackMatches,
     StackProgram,
 };
@@ -45,7 +46,7 @@ pub trait CallTrait<N: Network> {
     /// Executes the instruction.
     fn execute<A: circuit::Aleo<Network = N>, R: CryptoRng + Rng>(
         &self,
-        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
+        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackKeys<N> + StackProgram<N>),
         registers: &mut (
                  impl RegistersCall<N>
                  + RegistersSigner<N>
@@ -138,7 +139,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
     #[inline]
     fn execute<A: circuit::Aleo<Network = N>, R: Rng + CryptoRng>(
         &self,
-        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackProgram<N>),
+        stack: &(impl StackEvaluate<N> + StackExecute<N> + StackMatches<N> + StackKeys<N> + StackProgram<N>),
         registers: &mut (
                  impl RegistersCall<N>
                  + RegistersSigner<N>
@@ -226,7 +227,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                 // Set the (console) caller.
                 let console_caller = Some(*stack.program_id());
                 // Check if the substack has a proving key or not.
-                let pk_missing = !substack.has_proving_key(function.name());
+                let pk_missing = !substack.contains_proving_key(function.name());
 
                 match registers.call_stack() {
                     // If the circuit is in authorize mode, then add any external calls to the stack.
