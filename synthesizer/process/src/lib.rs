@@ -71,10 +71,8 @@ use aleo_std::{
     prelude::{finish, lap, timer},
 };
 use indexmap::IndexMap;
+use locktick::parking_lot::{Mutex, RwLock};
 use lru::LruCache;
-use locktick::parking_lot::RwLock;
-use locktick::parking_lot::Mutex;
-use parking_lot::RwLock;
 use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 use tracing::{debug, warn};
 
