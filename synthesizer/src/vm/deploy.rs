@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use super::*;
-use crate::prelude::deployment_cost_v1;
+use crate::prelude::deployment_cost;
 
 impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
     /// Returns a new deploy transaction.
@@ -42,7 +42,7 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
         let owner = ProgramOwner::new(private_key, deployment_id, rng)?;
 
         // Compute the minimum deployment cost.
-        let (minimum_deployment_cost, _) = deployment_cost_v1(&deployment)?;
+        let (minimum_deployment_cost, _) = deployment_cost(&deployment)?;
         // Authorize the fee.
         let fee_authorization = match fee_record {
             Some(record) => self.authorize_fee_private(

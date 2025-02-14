@@ -60,7 +60,7 @@ pub fn deployment_cost_v2<N: Network>(deployment: &Deployment<N>) -> Result<(u64
     Ok((total_cost, (storage_cost, synthesis_cost, namespace_cost)))
 }
 /// Returns the *minimum* cost in microcredits to publish the given deployment (total cost, (storage cost, synthesis cost, namespace cost)).
-pub fn deployment_cost_v1<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (u64, u64, u64))> {
+pub fn deployment_cost<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (u64, u64, u64))> {
     // Determine the number of bytes in the deployment.
     let size_in_bytes = deployment.size_in_bytes()?;
     // Retrieve the program ID.
