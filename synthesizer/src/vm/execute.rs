@@ -48,9 +48,10 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
                 // Compute the minimum execution cost.
                 let query = query.clone().unwrap_or(Query::VM(self.block_store().clone()));
                 let block_height = query.current_block_height()?;
-                let (minimum_execution_cost, (_, _)) = match block_height < N::CONSENSUS_V2_HEIGHT {
-                    true => execution_cost_v1(&self.process().read(), &execution)?,
-                    false => execution_cost_v2(&self.process().read(), &execution)?,
+                let (minimum_execution_cost, (_, _)) = match block_height {
+                    height if height < N::CONSENSUS_V2_HEIGHT => execution_cost_v1(&self.process().read(), &execution)?,
+                    height if height < N::CONSENSUS_V4_HEIGHT => execution_cost_v2(&self.process().read(), &execution)?,
+                    _ => execution_cost_v3(&self.process().read(), &execution)?,
                 };
                 // Compute the execution ID.
                 let execution_id = execution.to_execution_id()?;

@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use super::*;
+use crate::prelude::deployment_cost_v1;
 
 /// Ensures the given iterator has no duplicate elements, and that the ledger
 /// does not already contain a given item.
@@ -217,7 +218,7 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
                     bail!("Failed to compute the Merkle root for deployment transaction '{id}'")
                 };
                 // Compute the minimum deployment cost.
-                let (cost, _) = deployment_cost(deployment)?;
+                let (cost, _) = deployment_cost_v1(deployment)?;
                 // Ensure the fee is sufficient to cover the cost.
                 if *fee.base_amount()? < cost {
                     bail!("Transaction '{id}' has an insufficient base fee (deployment) - requires {cost} microcredits")

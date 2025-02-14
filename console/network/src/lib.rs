@@ -95,6 +95,8 @@ pub trait Network:
     const CONSENSUS_V2_HEIGHT: u32;
     /// The block height from which consensus V3 rules apply.
     const CONSENSUS_V3_HEIGHT: u32;
+    /// The block height from which consensus V4 rules apply.
+    const CONSENSUS_V4_HEIGHT: u32;
 
     /// The function name for the inclusion circuit.
     const INCLUSION_FUNCTION_NAME: &'static str;
@@ -112,6 +114,10 @@ pub trait Network:
 
     /// The starting supply of Aleo credits.
     const STARTING_SUPPLY: u64 = 1_500_000_000_000_000; // 1.5B credits
+
+    /// Cost factor ..
+    const COST_FACTOR: u64 = 100; // 1.5B credits
+
     /// The cost in microcredits per byte for the deployment transaction.
     const DEPLOYMENT_FEE_MULTIPLIER: u64 = 1_000; // 1 millicredit per byte
     /// The constant that divides the storage polynomial.

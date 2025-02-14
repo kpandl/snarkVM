@@ -23,7 +23,44 @@ use ledger_block::{Deployment, Execution};
 use synthesizer_program::{CastType, Command, Finalize, Instruction, Operand, StackProgram};
 
 /// Returns the *minimum* cost in microcredits to publish the given deployment (total cost, (storage cost, synthesis cost, namespace cost)).
-pub fn deployment_cost<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (u64, u64, u64))> {
+pub fn deployment_cost_v2<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (u64, u64, u64))> {
+    // Determine the number of bytes in the deployment.
+    let size_in_bytes = deployment.size_in_bytes()?;
+    // Retrieve the program ID.
+    let program_id = deployment.program_id();
+    // Determine the number of characters in the program ID.
+    let num_characters = u32::try_from(program_id.name().to_string().len())?;
+    // Compute the number of combined variables in the program.
+    let num_combined_variables = deployment.num_combined_variables()?;
+    // Compute the number of combined constraints in the program.
+    let num_combined_constraints = deployment.num_combined_constraints()?;
+
+    // Compute the storage cost in microcredits.
+    let storage_cost = size_in_bytes
+        .checked_mul(N::DEPLOYMENT_FEE_MULTIPLIER)
+        .ok_or(anyhow!("The storage cost computation overflowed for a deployment"))?;
+
+    // Compute the synthesis cost in microcredits.
+    let mut synthesis_cost = num_combined_variables.saturating_add(num_combined_constraints) * N::SYNTHESIS_FEE_MULTIPLIER;
+    // divide by COST_FACTOR
+    synthesis_cost = synthesis_cost / N::COST_FACTOR;
+
+    // Compute the namespace cost in credits: 10^(10 - num_characters).
+    let namespace_cost = 10u64
+        .checked_pow(10u32.saturating_sub(num_characters))
+        .ok_or(anyhow!("The namespace cost computation overflowed for a deployment"))?
+        .saturating_mul(1_000_000); // 1 microcredit = 1e-6 credits.
+
+    // Compute the total cost in microcredits.
+    let total_cost = storage_cost
+        .checked_add(synthesis_cost)
+        .and_then(|x| x.checked_add(namespace_cost))
+        .ok_or(anyhow!("The total cost computation overflowed for a deployment"))?;
+
+    Ok((total_cost, (storage_cost, synthesis_cost, namespace_cost)))
+}
+/// Returns the *minimum* cost in microcredits to publish the given deployment (total cost, (storage cost, synthesis cost, namespace cost)).
+pub fn deployment_cost_v1<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (u64, u64, u64))> {
     // Determine the number of bytes in the deployment.
     let size_in_bytes = deployment.size_in_bytes()?;
     // Retrieve the program ID.
@@ -59,6 +96,30 @@ pub fn deployment_cost<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (
 }
 
 /// Returns the *minimum* cost in microcredits to publish the given execution (total cost, (storage cost, finalize cost)).
+pub fn execution_cost_v3<N: Network>(process: &Process<N>, execution: &Execution<N>) -> Result<(u64, (u64, u64))> {
+    // Compute the storage cost in microcredits.
+    let storage_cost = execution_storage_cost::<N>(execution.size_in_bytes()?);
+
+    // Get the root transition.
+    let transition = execution.peek()?;
+
+    // Get the finalize cost for the root transition.
+    let mut finalize_cost = process.get_stack(transition.program_id())?.get_finalize_cost(transition.function_name())?;
+    // divide by COST_FACTOR
+    finalize_cost = finalize_cost / N::COST_FACTOR;
+
+    
+
+    // Compute the total cost in microcredits.
+    let total_cost = storage_cost
+        .checked_add(finalize_cost)
+        .ok_or(anyhow!("The total cost computation overflowed for an execution"))?;
+
+    Ok((total_cost, (storage_cost, finalize_cost)))
+}
+
+
+/// Returns the *minimum* cost in microcredits to publish the given execution (total cost, (storage cost, finalize cost)).
 pub fn execution_cost_v2<N: Network>(process: &Process<N>, execution: &Execution<N>) -> Result<(u64, (u64, u64))> {
     // Compute the storage cost in microcredits.
     let storage_cost = execution_storage_cost::<N>(execution.size_in_bytes()?);
@@ -68,6 +129,8 @@ pub fn execution_cost_v2<N: Network>(process: &Process<N>, execution: &Execution
 
     // Get the finalize cost for the root transition.
     let finalize_cost = process.get_stack(transition.program_id())?.get_finalize_cost(transition.function_name())?;
+
+
 
     // Compute the total cost in microcredits.
     let total_cost = storage_cost
