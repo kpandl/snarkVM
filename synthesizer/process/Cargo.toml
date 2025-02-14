@@ -78,6 +78,9 @@ package = "snarkvm-ledger-store"
 path = "../../ledger/store"
 version = "=1.2.1"
 
+[dependencies.log]
+version = "0.4"
+
 [dependencies.synthesizer-program]
 package = "snarkvm-synthesizer-program"
 path = "../../synthesizer/program"
