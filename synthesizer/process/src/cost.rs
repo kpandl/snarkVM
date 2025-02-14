@@ -97,6 +97,7 @@ pub fn deployment_cost<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (
 
 /// Returns the *minimum* cost in microcredits to publish the given execution (total cost, (storage cost, finalize cost)).
 pub fn execution_cost_v3<N: Network>(process: &Process<N>, execution: &Execution<N>) -> Result<(u64, (u64, u64))> {
+\    println!("execution_cost_v3");
     // Compute the storage cost in microcredits.
     let storage_cost = execution_storage_cost::<N>(execution.size_in_bytes()?);
 
@@ -121,6 +122,7 @@ pub fn execution_cost_v3<N: Network>(process: &Process<N>, execution: &Execution
 
 /// Returns the *minimum* cost in microcredits to publish the given execution (total cost, (storage cost, finalize cost)).
 pub fn execution_cost_v2<N: Network>(process: &Process<N>, execution: &Execution<N>) -> Result<(u64, (u64, u64))> {
+    print!("execution_cost_v2");
     // Compute the storage cost in microcredits.
     let storage_cost = execution_storage_cost::<N>(execution.size_in_bytes()?);
 
@@ -142,6 +144,7 @@ pub fn execution_cost_v2<N: Network>(process: &Process<N>, execution: &Execution
 
 /// Returns the *minimum* cost in microcredits to publish the given execution (total cost, (storage cost, finalize cost)).
 pub fn execution_cost_v1<N: Network>(process: &Process<N>, execution: &Execution<N>) -> Result<(u64, (u64, u64))> {
+    print!("execution_cost_v1");
     // Compute the storage cost in microcredits.
     let storage_cost = execution_storage_cost::<N>(execution.size_in_bytes()?);
 
