@@ -44,7 +44,7 @@ pub fn deployment_cost_v2<N: Network>(deployment: &Deployment<N>) -> Result<(u64
         .ok_or(anyhow!("The storage cost computation overflowed for a deployment"))?;
 
     // Compute the synthesis cost in microcredits.
-    let mut synthesis_cost = num_combined_variables.saturating_add(num_combined_constraints) * N::SYNTHESIS_FEE_MULTIPLIER;
+    let mut synthesis_cost = num_combined_variables.saturating_add(num_combined_constraints) * N::SYNTHESIS_FEE_MULTIPLIER / 100;
     // divide by COST_FACTOR
     synthesis_cost = synthesis_cost / N::COST_FACTOR;
 

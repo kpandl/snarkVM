@@ -15,6 +15,7 @@
 
 use super::*;
 use crate::prelude::deployment_cost;
+use crate::prelude::deployment_cost_v2;
 
 impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
     /// Returns a new deploy transaction.
@@ -41,8 +42,15 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
         // Construct the owner.
         let owner = ProgramOwner::new(private_key, deployment_id, rng)?;
 
+        let query = query.clone().unwrap_or(Query::VM(self.block_store().clone()));
+        let block_height = query.current_block_height()?;
+
         // Compute the minimum deployment cost.
-        let (minimum_deployment_cost, _) = deployment_cost(&deployment)?;
+        let (minimum_deployment_cost, _) = match block_height < N::CONSENSUS_V4_HEIGHT {
+            true => deployment_cost(&deployment)?,
+            false => deployment_cost_v2(&deployment)?,
+        };
+        
         // Authorize the fee.
         let fee_authorization = match fee_record {
             Some(record) => self.authorize_fee_private(
@@ -62,7 +70,7 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
             )?,
         };
         // Compute the fee.
-        let fee = self.execute_fee_authorization(fee_authorization, query, rng)?;
+        let fee = self.execute_fee_authorization(fee_authorization,  Some(query), rng)?;
 
         // Return the deploy transaction.
         Transaction::from_deployment(owner, deployment, fee)
