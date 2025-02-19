@@ -149,7 +149,7 @@ impl Network for TestnetV0 {
     const CONSENSUS_V4_HEIGHT: u32 = 9_560_000;
     /// The block height from which consensus V4 rules apply.
     #[cfg(any(test, feature = "test"))]
-    const CONSENSUS_V4_HEIGHT: u32 = 12;
+    const CONSENSUS_V4_HEIGHT: u32 = 22;
     /// The block height from which consensus V3 rules apply.
     #[cfg(any(test, feature = "test"))]
     const CONSENSUS_V3_HEIGHT: u32 = 11;
