@@ -15,6 +15,7 @@
 
 use super::*;
 use crate::prelude::deployment_cost;
+use crate::prelude::deployment_cost_v2;
 
 /// Ensures the given iterator has no duplicate elements, and that the ledger
 /// does not already contain a given item.
@@ -217,8 +218,16 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
                 let Ok(deployment_id) = deployment.to_deployment_id() else {
                     bail!("Failed to compute the Merkle root for deployment transaction '{id}'")
                 };
+
+                // Get the current block height.
+                let block_height = self.block_store().current_block_height();
+
                 // Compute the minimum deployment cost.
-                let (cost, _) = deployment_cost(deployment)?;
+                let (cost, _) = match block_height < N::CONSENSUS_V4_HEIGHT {
+                    true => deployment_cost(&deployment)?,
+                    false => deployment_cost_v2(&deployment)?,
+                };
+
                 // Ensure the fee is sufficient to cover the cost.
                 if *fee.base_amount()? < cost {
                     bail!("Transaction '{id}' has an insufficient base fee (deployment) - requires {cost} microcredits")
