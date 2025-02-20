@@ -301,6 +301,8 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         // Compute the address.
                         let address = Address::try_from(&private_key)?;
 
+                        println!("before sampling outputs");
+
                         // For each output, if it's a record, compute the randomizer and nonce.
                         let outputs = function
                             .outputs()
@@ -324,6 +326,8 @@ impl<N: Network> CallTrait<N> for Call<N> {
                                 _ => substack.sample_value(&address, output.value_type(), rng),
                             })
                             .collect::<Result<Vec<_>>>()?;
+
+                        println!("after sampling outputs");
 
                         // Construct the dummy response from these outputs.
                         let output_registers = function
