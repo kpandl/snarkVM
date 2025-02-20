@@ -73,7 +73,7 @@ impl TestRng {
     /// Helper to increment the trigger counter and log the current count.
     fn log_trigger(&mut self) {
         self.trigger_count += 1;
-        info!("TestRng triggered: count = {}", self.trigger_count);
+        println!("TestRng triggered: count = {}", self.trigger_count);
     }
 
     /// Returns a randomly-sampled `String`, given the maximum size in bytes and an RNG.
