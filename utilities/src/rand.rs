@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use log::info;
 use rand::{
     Rng,
     SeedableRng,
@@ -38,7 +39,10 @@ where
 }
 
 /// A fast RNG used **solely** for testing and benchmarking, **not** for any real world purposes.
-pub struct TestRng(XorShiftRng);
+pub struct TestRng {
+    rng: XorShiftRng,
+    trigger_count: u64,
+}
 
 impl Default for TestRng {
     fn default() -> Self {
@@ -56,14 +60,20 @@ impl TestRng {
         println!("\nInitializing 'TestRng' with seed '{seed}'\n");
 
         // Use the seed to initialize a fast, non-cryptographic Rng.
-        Self::from_seed(seed)
+        Self { rng: XorShiftRng::seed_from_u64(seed), trigger_count: 0 }
     }
 
     // This is the preferred method to use once the main instance of TestRng had already
     // been initialized in a test or benchmark and an auxiliary one is desired without
     // spamming the stdout.
     pub fn from_seed(seed: u64) -> Self {
-        Self(XorShiftRng::seed_from_u64(seed))
+        Self { rng: XorShiftRng::seed_from_u64(seed), trigger_count: 0 }
+    }
+
+    /// Helper to increment the trigger counter and log the current count.
+    fn log_trigger(&mut self) {
+        self.trigger_count += 1;
+        info!("TestRng triggered: count = {}", self.trigger_count);
     }
 
     /// Returns a randomly-sampled `String`, given the maximum size in bytes and an RNG.
@@ -131,19 +141,23 @@ impl TestRng {
 
 impl rand::RngCore for TestRng {
     fn next_u32(&mut self) -> u32 {
-        self.0.next_u32()
+        self.log_trigger();
+        self.rng.next_u32()
     }
 
     fn next_u64(&mut self) -> u64 {
-        self.0.next_u64()
+        self.log_trigger();
+        self.rng.next_u64()
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.0.fill_bytes(dest)
+        self.log_trigger();
+        self.rng.fill_bytes(dest)
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-        self.0.try_fill_bytes(dest)
+        self.log_trigger();
+        self.rng.try_fill_bytes(dest)
     }
 }
 

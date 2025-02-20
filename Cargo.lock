@@ -3500,6 +3500,7 @@ dependencies = [
  "aleo-std",
  "anyhow",
  "bincode",
+ "log",
  "num-bigint",
  "num_cpus",
  "rand",
