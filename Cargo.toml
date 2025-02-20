@@ -279,25 +279,25 @@ version = "2"
 
 [profile.release]
 opt-level = 3
-lto = "thin"
+lto = false
 incremental = true
 
 [profile.bench]
 opt-level = 3
 debug = false
 rpath = false
-lto = "thin"
+lto = false
 incremental = true
 debug-assertions = false
 
 [profile.dev]
 opt-level = 3
-lto = "thin"
+lto = false
 incremental = true
 
 [profile.test]
 opt-level = 3
-lto = "thin"
+lto = false
 incremental = true
 debug = true
 debug-assertions = true
