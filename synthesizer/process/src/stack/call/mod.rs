@@ -242,6 +242,10 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             rng,
                         )?;
 
+                        println!("before sampling outputs");
+
+                        println!("after sampling outputs");
+                        
                         // Retrieve the call stack.
                         let mut call_stack = registers.call_stack();
                         // Push the request onto the call stack.
