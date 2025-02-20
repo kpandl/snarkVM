@@ -278,8 +278,13 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         // Push the request onto the call stack.
                         call_stack.push(request.clone())?;
 
+
+                        println!("before sampling outputs");
+
                         // Execute the request.
                         let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
+
+                        println!("after sampling outputs");
 
                         // Return the request and response.
                         (request, response)
