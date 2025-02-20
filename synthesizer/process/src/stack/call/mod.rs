@@ -244,8 +244,6 @@ impl<N: Network> CallTrait<N> for Call<N> {
 
                         println!("before sampling outputs");
 
-                        println!("after sampling outputs");
-                        
                         // Retrieve the call stack.
                         let mut call_stack = registers.call_stack();
                         // Push the request onto the call stack.
@@ -257,6 +255,8 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         // Execute the request.
                         let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
 
+                        println!("after sampling outputs");
+                        
                         // Return the request and response.
                         (request, response)
                     }
