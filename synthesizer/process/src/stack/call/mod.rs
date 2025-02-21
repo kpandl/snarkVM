@@ -279,12 +279,12 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         call_stack.push(request.clone())?;
 
 
-                        println!("before sampling outputs");
+                        println!("before sampling outputs, pk_missing {}, function name {}", pk_missing, function.name());
 
                         // Execute the request.
                         let response = substack.execute_function::<A, R>(call_stack, console_caller, root_tvk, rng)?;
 
-                        println!("after sampling outputs");
+                        println!("after sampling outputs, pk_missing {}, function name {}", pk_missing, function.name());
 
                         // Return the request and response.
                         (request, response)
@@ -306,7 +306,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                         // Compute the address.
                         let address = Address::try_from(&private_key)?;
 
-                        println!("before sampling outputs");
+                        println!("before sampling outputs, pk_missing {}, function name {}", pk_missing, function.name());
 
                         // For each output, if it's a record, compute the randomizer and nonce.
                         let outputs = function
@@ -332,7 +332,7 @@ impl<N: Network> CallTrait<N> for Call<N> {
                             })
                             .collect::<Result<Vec<_>>>()?;
 
-                        println!("after sampling outputs");
+                        println!("after sampling outputs, pk_missing {}, function name {}", pk_missing, function.name());
 
                         // Construct the dummy response from these outputs.
                         let output_registers = function
