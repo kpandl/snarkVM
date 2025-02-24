@@ -208,3 +208,30 @@ function compute:
             .clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+    use synthesizer_snark::VerifyingKey;
+    use console::network::MainnetV0; // or your current network type
+
+    #[test]
+    fn test_parse_verifying_key() {
+        // Hardcoded verifying key string (replace with your actual string)
+        let verifying_key_str = "verifier1qygqqqqqqqqqqqr32gqqqqqqqqq825sqqqqqqqqqcmzqqqqqqqqqpkhqqqqqqqqqqrj8kqqqqqqqqqqvqqqqqqqqqqqd3x9mq9mdtvqp3ee4udmxtny6rnwsm2aueuhhtwsn7dqvsw8sns0rajz94ckxnud0rlr6q6ptzzuqwecemjfsh9nu28u87krfts8ynsea8agrsdf9gegcvfe5eu7zrxwcc74q8t3vt4xz8uur4tjv7hzcq5676m26nnajgntrlejh5a5yme2l4rq870ltqyysh6ks3tjqxqgfy953rvxck3unay2yqxekgwt0q9ngm4hwar04d3l0r48lxhd57qzd8y2alfsr75puqlps2kxjda82muh95z89m7hgrwn7gt8prwjahq8z2t5g7tg9ac2ytyln5nc8fdevfl49w5fu75ygn4r99jtj6y339m2whdutuxyj2knxehll2qpc0gqwla30x9rglr3lkyfrn26qu6q9x2ms0jp4anuacx8uyx35pam6f53tcru86h6vv58rhrxft69ugrvq056ucwde3pswpkr35qtgggzgaczq60judrv7gk43uj3ayhtzkmh945ljh4x6x9annw5z7w662emsznlwqhajqgj30pvuafedx25h7552utfpqskt4jauqxgg079tu50q7fmlaljk05n0v8h9cw7fnx7tqqc3lm2nfxy2zlwaqy447fnexle4jdq35096chtjy3lkwshmqx37mwn7dxl8ljm88xns6te4k9nxmq9v8tkeyzn39rflamhxx5pwyfdaq3mnnuvjhehh8t328r338nya9f8fs3wqnr0tyzltrg2pn630xzqjllzk25zdergrlrx0yqld3gemv89afxa0qmuzqpw3e9zchd2st2ksm8tk62tmugusfe2pxc3v6gspwsavgmvkf0jh70qsnpyqasgzfjw3rax2z630zp7ez6qmrhxeemdjvwrekaa02uwj6xapz28reqjcrffm0f4fa5hnemzxjwu022xhrtsdp27p9zqy24zy8mgx5pxagp4t93hsqqqqqqqqqeqz2nz";
+
+        // Deserialize the verifying key.
+        let vk = VerifyingKey::<MainnetV0>::from_str(verifying_key_str)
+            .expect("Failed to parse verifying key");
+
+        // Retrieve the number of variables.
+        let num_variables = vk.num_variables();
+        // Retrieve the number of constraints.
+        let num_constraints = vk.circuit_info.num_constraints;
+
+        // Print the results.
+        println!("Number of variables: {}", num_variables);
+        println!("Number of constraints: {}", num_constraints);
+    }
+}
