@@ -95,6 +95,8 @@ pub fn deployment_cost<N: Network>(deployment: &Deployment<N>) -> Result<(u64, (
         .and_then(|x| x.checked_add(namespace_cost))
         .ok_or(anyhow!("The total cost computation overflowed for a deployment"))?;
 
+    info!("deployment_cost: {:?}", (total_cost, (storage_cost, synthesis_cost, namespace_cost)));
+
     Ok((total_cost, (storage_cost, synthesis_cost, namespace_cost)))
 }
 
