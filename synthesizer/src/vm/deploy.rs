@@ -45,6 +45,10 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
         let query = query.clone().unwrap_or(Query::VM(self.block_store().clone()));
         let block_height = query.current_block_height()?;
 
+        // println! the deployment itself
+        println!("kp-Deployment: {:?}", deployment);
+
+
         // Compute the minimum deployment cost.
         let (minimum_deployment_cost, _) = match block_height < N::CONSENSUS_V4_HEIGHT {
             true => deployment_cost(&deployment)?,
