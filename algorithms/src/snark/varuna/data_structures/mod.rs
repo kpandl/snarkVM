@@ -30,9 +30,7 @@ pub(super) mod proof;
 pub use proof::*;
 
 /// A test circuit.
-#[cfg(any(test, feature = "test"))]
 pub(super) mod test_circuit;
-#[cfg(any(test, feature = "test"))]
 pub use test_circuit::*;
 
 /// The Varuna universal SRS.
