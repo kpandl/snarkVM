@@ -116,7 +116,7 @@ pub trait Network:
     const STARTING_SUPPLY: u64 = 1_500_000_000_000_000; // 1.5B credits
 
     /// Cost factor ..
-    const COST_FACTOR: u64 = 100; // 1.5B credits
+    const COST_FACTOR: u64 = 50; // 1.5B credits
 
     /// The cost in microcredits per byte for the deployment transaction.
     const DEPLOYMENT_FEE_MULTIPLIER: u64 = 1_000; // 1 millicredit per byte
