@@ -54,7 +54,7 @@ impl<N: Network> Process<N> {
             // Retrieve the fee stack.
             let fee_stack = self.get_stack(fee.program_id())?;
             // Finalize the fee transition.
-            finalize_operations.extend(finalize_fee_transition(state, store, fee_stack, fee)?);
+            finalize_operations.extend(finalize_fee_transition(state, store, &fee_stack, fee)?);
             lap!(timer, "Finalize transition for '{}/{}'", fee.program_id(), fee.function_name());
 
             /* Finalize the deployment. */
@@ -116,7 +116,7 @@ impl<N: Network> Process<N> {
             // Finalize the root transition.
             // Note that this will result in all the remaining transitions being finalized, since the number
             // of calls matches the number of transitions.
-            let mut finalize_operations = finalize_transition(state, store, stack, transition, call_graph)?;
+            let mut finalize_operations = finalize_transition(state, store, &stack, transition, call_graph)?;
 
             /* Finalize the fee. */
 
@@ -124,7 +124,7 @@ impl<N: Network> Process<N> {
                 // Retrieve the fee stack.
                 let fee_stack = self.get_stack(fee.program_id())?;
                 // Finalize the fee transition.
-                finalize_operations.extend(finalize_fee_transition(state, store, fee_stack, fee)?);
+                finalize_operations.extend(finalize_fee_transition(state, store, &fee_stack, fee)?);
                 lap!(timer, "Finalize transition for '{}/{}'", fee.program_id(), fee.function_name());
             }
 
@@ -150,7 +150,7 @@ impl<N: Network> Process<N> {
             // Retrieve the stack.
             let stack = self.get_stack(fee.program_id())?;
             // Finalize the fee transition.
-            let result = finalize_fee_transition(state, store, stack, fee);
+            let result = finalize_fee_transition(state, store, &stack, fee);
             finish!(timer, "Finalize transition for '{}/{}'", fee.program_id(), fee.function_name());
             // Return the result.
             result
@@ -162,7 +162,7 @@ impl<N: Network> Process<N> {
 fn finalize_fee_transition<N: Network, P: FinalizeStorage<N>>(
     state: FinalizeGlobalState,
     store: &FinalizeStore<N, P>,
-    stack: &Stack<N>,
+    stack: &Arc<Stack<N>>,
     fee: &Fee<N>,
 ) -> Result<Vec<FinalizeOperation<N>>> {
     // Construct the call graph.
@@ -187,7 +187,7 @@ fn finalize_fee_transition<N: Network, P: FinalizeStorage<N>>(
 fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
     state: FinalizeGlobalState,
     store: &FinalizeStore<N, P>,
-    stack: &Stack<N>,
+    stack: &Arc<Stack<N>>,
     transition: &Transition<N>,
     call_graph: HashMap<N::TransitionID, Vec<N::TransitionID>>,
 ) -> Result<Vec<FinalizeOperation<N>>> {
@@ -226,15 +226,18 @@ fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
     states.push(initialize_finalize_state(state, future, stack, *transition.id(), nonce)?);
 
     // While there are active finalize states, finalize them.
-    'outer: while let Some(FinalizeState {
-        mut counter,
-        finalize,
-        mut registers,
-        stack,
-        mut call_counter,
-        mut awaited,
-    }) = states.pop()
+    'outer: while let Some(FinalizeState { mut counter, mut registers, stack, mut call_counter, mut awaited }) =
+        states.pop()
     {
+        // Get the finalize logic.
+        let finalize = match stack.get_function_ref(registers.function_name())?.finalize_logic() {
+            Some(finalize) => finalize,
+            None => bail!(
+                "The function '{}/{}' does not have an associated finalize block",
+                stack.program_id(),
+                registers.function_name()
+            ),
+        };
         // Evaluate the commands.
         while counter < finalize.commands().len() {
             // Retrieve the command.
@@ -242,7 +245,13 @@ fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
             // Finalize the command.
             match &command {
                 Command::BranchEq(branch_eq) => {
-                    let result = try_vm_runtime!(|| branch_to(counter, branch_eq, finalize, stack, &registers));
+                    let result = try_vm_runtime!(|| branch_to(
+                        counter,
+                        branch_eq,
+                        finalize.positions(),
+                        stack.deref(),
+                        &registers
+                    ));
                     match result {
                         Ok(Ok(new_counter)) => {
                             counter = new_counter;
@@ -254,7 +263,13 @@ fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
                     }
                 }
                 Command::BranchNeq(branch_neq) => {
-                    let result = try_vm_runtime!(|| branch_to(counter, branch_neq, finalize, stack, &registers));
+                    let result = try_vm_runtime!(|| branch_to(
+                        counter,
+                        branch_neq,
+                        finalize.positions(),
+                        stack.deref(),
+                        &registers
+                    ));
                     match result {
                         Ok(Ok(new_counter)) => {
                             counter = new_counter;
@@ -300,14 +315,20 @@ fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
                     nonce += 1;
 
                     // Set up the finalize state for the await.
-                    let callee_state =
-                        match try_vm_runtime!(|| setup_await(state, await_, stack, &registers, transition_id, nonce)) {
-                            Ok(Ok(callee_state)) => callee_state,
-                            // If the evaluation fails, bail and return the error.
-                            Ok(Err(error)) => bail!("'finalize' failed to evaluate command ({command}): {error}"),
-                            // If the evaluation fails, bail and return the error.
-                            Err(_) => bail!("'finalize' failed to evaluate command ({command})"),
-                        };
+                    let callee_state = match try_vm_runtime!(|| setup_await(
+                        state,
+                        await_,
+                        &stack,
+                        &registers,
+                        transition_id,
+                        nonce
+                    )) {
+                        Ok(Ok(callee_state)) => callee_state,
+                        // If the evaluation fails, bail and return the error.
+                        Ok(Err(error)) => bail!("'finalize' failed to evaluate command ({command}): {error}"),
+                        // If the evaluation fails, bail and return the error.
+                        Err(_) => bail!("'finalize' failed to evaluate command ({command})"),
+                    };
 
                     // Increment the call counter.
                     call_counter += 1;
@@ -317,7 +338,7 @@ fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
                     awaited.insert(await_.register().clone());
 
                     // Aggregate the caller state.
-                    let caller_state = FinalizeState { counter, finalize, registers, stack, call_counter, awaited };
+                    let caller_state = FinalizeState { counter, registers, stack, call_counter, awaited };
 
                     // Push the caller state onto the stack.
                     states.push(caller_state);
@@ -327,7 +348,7 @@ fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
                     continue 'outer;
                 }
                 _ => {
-                    let result = try_vm_runtime!(|| command.finalize(stack, store, &mut registers));
+                    let result = try_vm_runtime!(|| command.finalize(stack.deref(), store, &mut registers));
                     match result {
                         // If the evaluation succeeds with an operation, add it to the list.
                         Ok(Ok(Some(finalize_operation))) => finalize_operations.push(finalize_operation),
@@ -361,15 +382,13 @@ fn finalize_transition<N: Network, P: FinalizeStorage<N>>(
 }
 
 // A helper struct to track the execution of a finalize block.
-struct FinalizeState<'a, N: Network> {
+struct FinalizeState<N: Network> {
     // A counter for the index of the commands.
     counter: usize,
-    // The finalize logic.
-    finalize: &'a Finalize<N>,
     // The registers.
     registers: FinalizeRegisters<N>,
     // The stack.
-    stack: &'a Stack<N>,
+    stack: Arc<Stack<N>>,
     // Call counter.
     call_counter: usize,
     // Awaited futures.
@@ -377,23 +396,20 @@ struct FinalizeState<'a, N: Network> {
 }
 
 // A helper function to initialize the finalize state.
-fn initialize_finalize_state<'a, N: Network>(
+fn initialize_finalize_state<N: Network>(
     state: FinalizeGlobalState,
     future: &Future<N>,
-    stack: &'a Stack<N>,
+    stack: &Arc<Stack<N>>,
     transition_id: N::TransitionID,
     nonce: u64,
-) -> Result<FinalizeState<'a, N>> {
-    // Get the finalize logic and the stack.
-    let (finalize, stack) = match stack.program_id() == future.program_id() {
-        true => (stack.get_function_ref(future.function_name())?.finalize_logic(), stack),
-        false => {
-            let stack = stack.get_external_stack(future.program_id())?.as_ref();
-            (stack.get_function_ref(future.function_name())?.finalize_logic(), stack)
-        }
+) -> Result<FinalizeState<N>> {
+    // Get the stack.
+    let stack = match stack.get_external_stack(future.program_id()) {
+        Ok(stack) => stack,
+        Err(_) => stack.clone(),
     };
-    // Check that the finalize logic exists.
-    let finalize = match finalize {
+    // Get the finalize logic and check that it exists.
+    let finalize = match stack.get_function_ref(future.function_name())?.finalize_logic() {
         Some(finalize) => finalize,
         None => bail!(
             "The function '{}/{}' does not have an associated finalize block",
@@ -414,25 +430,25 @@ fn initialize_finalize_state<'a, N: Network>(
     finalize.inputs().iter().map(|i| i.register()).zip_eq(future.arguments().iter()).try_for_each(
         |(register, input)| {
             // Assign the input value to the register.
-            registers.store(stack, register, Value::from(input))
+            registers.store(stack.deref(), register, Value::from(input))
         },
     )?;
 
-    Ok(FinalizeState { counter: 0, finalize, registers, stack, call_counter: 0, awaited: Default::default() })
+    Ok(FinalizeState { counter: 0, registers, stack, call_counter: 0, awaited: Default::default() })
 }
 
 // A helper function that sets up the await operation.
 #[inline]
-fn setup_await<'a, N: Network>(
+fn setup_await<N: Network>(
     state: FinalizeGlobalState,
     await_: &Await<N>,
-    stack: &'a Stack<N>,
+    stack: &Arc<Stack<N>>,
     registers: &FinalizeRegisters<N>,
     transition_id: N::TransitionID,
     nonce: u64,
-) -> Result<FinalizeState<'a, N>> {
+) -> Result<FinalizeState<N>> {
     // Retrieve the input as a future.
-    let future = match registers.load(stack, &Operand::Register(await_.register().clone()))? {
+    let future = match registers.load(stack.deref(), &Operand::Register(await_.register().clone()))? {
         Value::Future(future) => future,
         _ => bail!("The input to 'await' is not a future"),
     };
@@ -445,16 +461,16 @@ fn setup_await<'a, N: Network>(
 fn branch_to<N: Network, const VARIANT: u8>(
     counter: usize,
     branch: &Branch<N, VARIANT>,
-    finalize: &Finalize<N>,
+    positions: &HashMap<Identifier<N>, usize>,
     stack: &Stack<N>,
-    registers: &FinalizeRegisters<N>,
+    registers: &impl RegistersLoad<N>,
 ) -> Result<usize> {
     // Retrieve the inputs.
     let first = registers.load(stack, branch.first())?;
     let second = registers.load(stack, branch.second())?;
 
     // A helper to get the index corresponding to a position.
-    let get_position_index = |position: &Identifier<N>| match finalize.positions().get(position) {
+    let get_position_index = |position: &Identifier<N>| match positions.get(position) {
         Some(index) if *index > counter => Ok(*index),
         Some(_) => bail!("Cannot branch to an earlier position '{position}' in the program"),
         None => bail!("The position '{position}' does not exist."),
@@ -542,7 +558,7 @@ function compute:
         let (stack, _) =
             process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
         // Add the stack *manually* to the process.
-        process.add_stack(stack);
+        process.add_stack(stack).unwrap();
 
         // Ensure the program exists.
         assert!(process.contains_program(program.id()));
