@@ -2526,7 +2526,8 @@ fn test_long_import_chain() {
     ))
     .unwrap();
     let result = process.add_program(&program);
-    assert!(result.is_err());
+    // Programs may create long import chains as long as number of calls does not exceed the maximum number of transitions.
+    assert!(result.is_ok());
 }
 
 #[test]
