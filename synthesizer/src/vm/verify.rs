@@ -235,6 +235,12 @@ impl<N: Network, C: ConsensusStorage<N>> VM<N, C> {
                         } else {
                             execution_cost_v2(&self.process().read(), execution)?
                         };
+                        // Ensure the cost does not exceed the transaction spend limit.
+                        ensure!(
+                            cost <= N::TRANSACTION_SPEND_LIMIT,
+                            "Transaction '{id}' exceeds the transaction spend limit '{}'",
+                            N::TRANSACTION_SPEND_LIMIT
+                        );
                         // Ensure the fee is sufficient to cover the cost.
                         if *fee.base_amount()? < cost {
                             bail!(

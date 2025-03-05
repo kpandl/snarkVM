@@ -24,6 +24,12 @@ impl<N: Network> Process<N> {
 
         // Ensure the execution contains transitions.
         ensure!(!execution.is_empty(), "There are no transitions in the execution");
+        // Ensure that the execution does not exceed the maximum number of transitions.
+        ensure!(
+            execution.len() < Transaction::<N>::MAX_TRANSITIONS,
+            "The number of transitions in an execution must be less than '{}'",
+            Transaction::<N>::MAX_TRANSITIONS
+        );
 
         // Ensure the number of transitions matches the program function.
         let locator = {

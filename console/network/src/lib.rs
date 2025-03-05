@@ -194,6 +194,7 @@ pub trait Network:
     const MAX_OUTPUTS: usize = 16;
 
     /// The maximum program depth.
+    /// This restriction is **not** in use.
     const MAX_PROGRAM_DEPTH: usize = 64;
     /// The maximum number of imports.
     const MAX_IMPORTS: usize = 64;
