@@ -39,7 +39,6 @@ use ledger_store::{
 use synthesizer_program::{FinalizeGlobalState, FinalizeStoreTrait, Program, StackProgram};
 use synthesizer_snark::UniversalSRS;
 
-use indexmap::IndexMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -1255,7 +1254,7 @@ finalize compute:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // Initialize a new caller account.
     let caller_private_key = PrivateKey::<CurrentNetwork>::new(rng).unwrap();
@@ -1368,7 +1367,7 @@ finalize compute:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // Initialize a new caller account.
     let caller_private_key = PrivateKey::<CurrentNetwork>::new(rng).unwrap();
@@ -1495,7 +1494,7 @@ finalize mint_public:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // TODO (howardwu): Remove this. I call this to synthesize the proving key independent of the assignment from 'execute'.
     //  In general, we should update all tests to utilize a presynthesized proving key, before execution, to test
@@ -1624,7 +1623,7 @@ finalize mint_public:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // TODO (howardwu): Remove this. I call this to synthesize the proving key independent of the assignment from 'execute'.
     //  In general, we should update all tests to utilize a presynthesized proving key, before execution, to test
@@ -1664,7 +1663,7 @@ finalize init:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(2), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // TODO (howardwu): Remove this. I call this to synthesize the proving key independent of the assignment from 'execute'.
     //  In general, we should update all tests to utilize a presynthesized proving key, before execution, to test
@@ -1782,7 +1781,7 @@ finalize compute:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // Initialize a new caller account.
     let caller_private_key = PrivateKey::<CurrentNetwork>::new(rng).unwrap();
@@ -2211,7 +2210,7 @@ finalize compute:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // Initialize a new caller account.
     let caller_private_key = PrivateKey::<CurrentNetwork>::new(rng).unwrap();
@@ -2366,7 +2365,7 @@ fn test_process_deploy_credits_program() {
     // Initialize an empty process without the `credits` program.
     let empty_process = Process {
         universal_srs: UniversalSRS::<CurrentNetwork>::load().unwrap(),
-        stacks: Arc::new(RwLock::new(IndexMap::new())),
+        stacks: Default::default(),
     };
 
     // Construct the process.
@@ -2440,7 +2439,7 @@ function {function_name}:
     // Finalize the deployment.
     let (stack, _) = process.finalize_deployment(sample_finalize_state(1), &finalize_store, &deployment, &fee).unwrap();
     // Add the stack *manually* to the process.
-    process.add_stack(stack).unwrap();
+    process.add_stack(stack);
 
     // Initialize a new caller account.
     let caller_private_key = PrivateKey::<CurrentNetwork>::new(rng).unwrap();

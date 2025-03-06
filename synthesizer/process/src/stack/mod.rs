@@ -330,16 +330,13 @@ impl<N: Network> StackProgram<N> for Stack<N> {
         // Check that the program ID is imported by the program.
         ensure!(self.program.contains_import(program_id), "External program '{program_id}' is not imported.");
         // Upgrade the weak reference to the process-level stack map and retrieve the external stack.
-        let result = self
-            .stacks
+        self.stacks
             .upgrade()
             .ok_or_else(|| anyhow!("Process-level stack map does not exist"))?
             .read()
             .get(program_id)
             .cloned()
-            .ok_or_else(|| anyhow!("External stack for '{program_id}' does not exist"));
-        // Return the external stack.
-        result
+            .ok_or_else(|| anyhow!("External stack for '{program_id}' does not exist"))
     }
 
     /// Returns the expected finalize cost for the given function name.
