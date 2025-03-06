@@ -135,10 +135,10 @@ impl<N: Network> Process<N> {
     pub fn add_stack(&mut self, stack: Stack<N>) {
         // Get the program ID.
         let program_id = *stack.program_id();
-        // Acquire the write lock.
-        let mut stacks = self.stacks.write();
+        // Arc the stack first to limit the scope of the write lock.
+        let stack = Arc::new(stack);
         // Insert the stack into the process, replacing the existing stack if it exists.
-        stacks.insert(program_id, Arc::new(stack));
+        self.stacks.write().insert(program_id, stack);
     }
 }
 
