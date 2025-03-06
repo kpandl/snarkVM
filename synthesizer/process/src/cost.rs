@@ -437,10 +437,7 @@ fn cost_in_microcredits<N: Network>(
             Transaction::<N>::MAX_TRANSITIONS
         );
         // Get the finalize logic. If the function does not have a finalize scope then no cost is incurred.
-        if let Some(finalize) = match &stack_ref {
-            StackRef::Internal(stack_ref) => stack_ref.get_function_ref(&function_name)?.finalize_logic(),
-            StackRef::External(stack_ref) => stack_ref.get_function_ref(&function_name)?.finalize_logic(),
-        } {
+        if let Some(finalize) = stack_ref.get_function_ref(&function_name)?.finalize_logic() {
             // Queue the futures to be tallied.
             for input in finalize.inputs() {
                 if let FinalizeType::Future(future) = input.finalize_type() {

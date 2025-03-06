@@ -365,10 +365,7 @@ impl<N: Network> StackProgram<N> for Stack<N> {
                 Transaction::<N>::MAX_TRANSITIONS
             );
             // Determine the number of calls for the function.
-            for instruction in match &stack_ref {
-                StackRef::Internal(stack) => stack.get_function_ref(&function_name)?.instructions(),
-                StackRef::External(stack) => stack.get_function_ref(&function_name)?.instructions(),
-            } {
+            for instruction in stack_ref.get_function_ref(&function_name)?.instructions() {
                 if let Instruction::Call(call) = instruction {
                     // Determine if this is a function call.
                     if call.is_function_call(&*stack_ref)? {
