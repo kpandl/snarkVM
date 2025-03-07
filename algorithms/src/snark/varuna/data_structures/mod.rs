@@ -30,9 +30,9 @@ pub(super) mod proof;
 pub use proof::*;
 
 /// A test circuit.
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "test", feature = "test-exports"))]
 pub(super) mod test_circuit;
-#[cfg(any(test, feature = "test"))]
+#[cfg(any(test, feature = "test", feature = "test-exports"))]
 pub use test_circuit::*;
 
 /// Test exports module that provides access to test utilities for external crates.

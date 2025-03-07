@@ -212,4 +212,4 @@ serial = [
   "snarkvm-utilities/serial"
 ]
 snark = [ "crypto_hash", "fft", "msm", "polycommit", "r1cs" ]
-test-exports = ["test"]
+test-exports = []
