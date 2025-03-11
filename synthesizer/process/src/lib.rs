@@ -89,8 +89,7 @@ impl<N: Network> Process<N> {
         let timer = timer!("Process:setup");
 
         // Initialize the process.
-        let mut process =
-            Self { universal_srs: UniversalSRS::load()?, stacks: Default::default() };
+        let mut process = Self { universal_srs: UniversalSRS::load()?, stacks: Default::default() };
         lap!(timer, "Initialize process");
 
         // Initialize the 'credits.aleo' program.
@@ -149,8 +148,7 @@ impl<N: Network> Process<N> {
         let timer = timer!("Process::load");
 
         // Initialize the process.
-        let mut process =
-            Self { universal_srs: UniversalSRS::load()?, stacks: Default::default() };
+        let mut process = Self { universal_srs: UniversalSRS::load()?, stacks: Default::default() };
         lap!(timer, "Initialize process");
 
         // Initialize the 'credits.aleo' program.
@@ -188,8 +186,7 @@ impl<N: Network> Process<N> {
     #[cfg(feature = "wasm")]
     pub fn load_web() -> Result<Self> {
         // Initialize the process.
-        let mut process =
-            Self { universal_srs: UniversalSRS::load()?, stacks: Default::default() };
+        let mut process = Self { universal_srs: UniversalSRS::load()?, stacks: Default::default() };
 
         // Initialize the 'credits.aleo' program.
         let program = Program::credits()?;

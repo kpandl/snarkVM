@@ -92,7 +92,7 @@ fn transfer_private(c: &mut Criterion) {
     let r2 = Value::<CurrentNetwork>::from_str("1_500_000_000_000_000_u64").unwrap();
 
     // Compute the assignment.
-    prepare_check_deployment::<_, CurrentAleo>(c, stack, &private_key, function_name, &[r0, r1, r2], rng);
+    prepare_check_deployment::<_, CurrentAleo>(c, &stack, &private_key, function_name, &[r0, r1, r2], rng);
 }
 
 fn transfer_public(c: &mut Criterion) {
@@ -115,7 +115,7 @@ fn transfer_public(c: &mut Criterion) {
     let r1 = Value::<CurrentNetwork>::from_str("1_500_000_000_000_000_u64").unwrap();
 
     // Compute the assignment.
-    prepare_check_deployment::<_, CurrentAleo>(c, stack, &private_key, function_name, &[r0, r1], rng);
+    prepare_check_deployment::<_, CurrentAleo>(c, &stack, &private_key, function_name, &[r0, r1], rng);
 }
 
 fn large_program(c: &mut Criterion) {
