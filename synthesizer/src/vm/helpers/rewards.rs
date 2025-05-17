@@ -70,19 +70,21 @@ pub fn staking_rewards<N: Network>(
         })
         .collect();
 
-    // Pre-check for validators not in committee.
-    let mut non_committee_validators = std::collections::HashSet::new();
-    for (_, (validator, _)) in stakers {
-        if !committee.members().contains_key(validator) && non_committee_validators.insert(*validator) {
-            trace!("Validator {validator} is not in the committee - skipping all stakers");
-        }
-    }
+    // Track validators not in committee.
+    let missing_validators = std::sync::Mutex::new(std::collections::HashSet::<Address<N>>::new());
 
     // Compute the updated stakers.
     cfg_iter!(stakers)
         .map(|(staker, (validator, stake))| {
             // If the validator is not in the valid validators list, skip the staker.
             let Some((validator_stake, commission_rate)) = valid_validators.get(validator) else {
+                // Log validator not in committe once.
+                if !committee.members().contains_key(validator) {
+                    let mut logged = missing_validators.lock().unwrap();
+                    if logged.insert(*validator) {
+                        trace!("Validator {validator} is not in the committee - skipping all stakers");
+                    }
+                }
                 return (*staker, (*validator, *stake));
             };
 
