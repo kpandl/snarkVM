@@ -136,7 +136,7 @@ impl<F: PrimeField, SM: SNARKMode> AHPForR1CS<F, SM> {
                     job_pool.add_job(move || {
                         let z_m_at_alpha = Self::calculate_lineval_sumcheck_instance_witness(
                             label,
-                            &l_at_alpha,
+                            l_at_alpha,
                             &circuit_specific_state.variable_domain,
                             precomp.0,
                             precomp.1,

@@ -40,7 +40,7 @@ use snarkvm_utilities::ExecutionPool;
 use anyhow::{Result, ensure};
 use itertools::Itertools;
 use rand::Rng;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 struct LinevalInstance<F: PrimeField> {
     h_1_i: DensePolynomial<F>,
@@ -89,8 +89,12 @@ impl<F: PrimeField, SM: SNARKMode> AHPForR1CS<F, SM> {
         )
         .map_err(AHPError::AnyhowError)?;
 
-        let assignments = Self::calculate_assignments(&mut state)?;
-        let matrix_transposes = Self::calculate_matrix_transpose(&mut state)?;
+        let (assignments, matrix_transposes) = match varuna_version {
+            VarunaVersion::V1 => {
+                (Self::calculate_assignments(&mut state)?, Self::calculate_matrix_transpose(&mut state)?)
+            }
+            VarunaVersion::V2 | VarunaVersion::V3 => (BTreeMap::new(), BTreeMap::new()),
+        };
 
         let (h_1, x_g_1_sum, msg) = Self::calculate_lineval_sumcheck_witness(
             &mut state,
@@ -165,24 +169,22 @@ impl<F: PrimeField, SM: SNARKMode> AHPForR1CS<F, SM> {
             third_round_batch_combiners.len(),
             state.circuit_specific_states.len()
         );
-        ensure!(
-            state.circuit_specific_states.len() == assignments.len(),
-            "[calculate Lineval Sumcheck Witness] Expected {} assignments, but {} were provided.",
-            assignments.len(),
-            state.circuit_specific_states.len()
-        );
-        ensure!(
-            state.circuit_specific_states.len() == matrix_transposes.len(),
-            "[calculate Lineval Sumcheck Witness] Expected {} matrix transposes, but {} were provided.",
-            matrix_transposes.len(),
-            state.circuit_specific_states.len()
-        );
-        for ((((circuit, circuit_specific_state), batch_combiner), assignments_i), matrix_transposes_i) in state
-            .circuit_specific_states
-            .iter_mut()
-            .zip_eq(third_round_batch_combiners.values())
-            .zip_eq(assignments.values())
-            .zip_eq(matrix_transposes.values())
+        if varuna_version == VarunaVersion::V1 {
+            ensure!(
+                state.circuit_specific_states.len() == assignments.len(),
+                "[calculate Lineval Sumcheck Witness] Expected {} assignments, but {} were provided.",
+                assignments.len(),
+                state.circuit_specific_states.len()
+            );
+            ensure!(
+                state.circuit_specific_states.len() == matrix_transposes.len(),
+                "[calculate Lineval Sumcheck Witness] Expected {} matrix transposes, but {} were provided.",
+                matrix_transposes.len(),
+                state.circuit_specific_states.len()
+            );
+        }
+        for ((circuit, circuit_specific_state), batch_combiner) in
+            state.circuit_specific_states.iter_mut().zip_eq(third_round_batch_combiners.values())
         {
             let circuit_combiner = batch_combiner.circuit_combiner;
             let instance_combiners = &batch_combiner.instance_combiners;
@@ -190,9 +192,11 @@ impl<F: PrimeField, SM: SNARKMode> AHPForR1CS<F, SM> {
             let variable_domain = &circuit_specific_state.variable_domain;
             let fft_precomputation = &circuit.fft_precomputation;
             let ifft_precomputation = &circuit.ifft_precomputation;
+            let assignments_i = assignments.get(&circuit.id);
+            let matrix_transposes_i = matrix_transposes.get(&circuit.id);
 
             // Iterate for each instance in the batch.
-            for (instance_combiner, assignment) in itertools::izip!(instance_combiners, assignments_i) {
+            for (instance_index, instance_combiner) in instance_combiners.iter().enumerate() {
                 // Destructure the optional z_m_at_alpha_polys to a vector of optional
                 // DensePolynomials.
                 let z_m_at_alpha_for_circuit = match &mut circuit_specific_state.z_m_at_alpha_polys {
@@ -209,14 +213,19 @@ impl<F: PrimeField, SM: SNARKMode> AHPForR1CS<F, SM> {
                 for (label, matrix_combiner, z_m_at_alpha) in
                     itertools::izip!(matrix_labels, matrix_combiners, z_m_at_alpha_for_circuit)
                 {
-                    let matrix_transpose = &matrix_transposes_i[label];
                     let combiner = circuit_combiner * instance_combiner * matrix_combiner;
                     job_pool.add_job(move || match varuna_version {
                         VarunaVersion::V1 => {
-                            let l_at_alpha = constraint_domain.evaluate_all_lagrange_coefficients(*alpha);
+                            let assignment = assignments_i
+                                .and_then(|assignments| assignments.get(instance_index))
+                                .ok_or_else(|| anyhow::anyhow!("Expected an assignment for the V1 instance"))?;
+                            let matrix_transpose = matrix_transposes_i
+                                .and_then(|matrices| matrices.get(label))
+                                .ok_or_else(|| anyhow::anyhow!("Expected a matrix transpose for the V1 instance"))?;
+                            let l_at_alpha = Arc::new(constraint_domain.evaluate_all_lagrange_coefficients(*alpha));
                             let z_m_at_alpha = Self::calculate_lineval_sumcheck_instance_witness(
                                 label,
-                                &l_at_alpha,
+                                l_at_alpha,
                                 variable_domain,
                                 fft_precomputation,
                                 ifft_precomputation,
@@ -347,7 +356,7 @@ impl<F: PrimeField, SM: SNARKMode> AHPForR1CS<F, SM> {
     #[allow(clippy::too_many_arguments)]
     pub(in crate::snark::varuna) fn calculate_lineval_sumcheck_instance_witness(
         _matrix_label: &str,
-        l_at_alpha: &[F],
+        l_at_alpha: Arc<Vec<F>>,
         variable_domain: &EvaluationDomain<F>,
         fft_precomputation: &FFTPrecomputation<F>,
         ifft_precomputation: &IFFTPrecomputation<F>,
@@ -368,6 +377,7 @@ impl<F: PrimeField, SM: SNARKMode> AHPForR1CS<F, SM> {
             .iter()
             .map(|col| col.iter().map(|(val, row_index)| *val * l_at_alpha[*row_index]).sum::<F>())
             .collect();
+        drop(l_at_alpha);
         end_timer!(m_at_alpha_evals_time);
 
         let z_m_at_alpha_time = start_timer!(|| format!("Compute z_m_at_alpha_time for {_matrix_label}"));

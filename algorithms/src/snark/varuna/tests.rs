@@ -208,7 +208,7 @@ mod varuna {
             let state = AHPForR1CS::<_, VarunaHidingMode>::prover_first_round(state, rng).expect("valid test fixture");
             let (_, state) = AHPForR1CS::<_, VarunaHidingMode>::prover_second_round(&first_message, state, rng)
                 .expect("valid test fixture");
-            let (claims, state) = AHPForR1CS::<_, VarunaHidingMode>::prover_prepare_third_round(
+            let (claims, mut state) = AHPForR1CS::<_, VarunaHidingMode>::prover_prepare_third_round(
                 &first_message,
                 &second_message,
                 state,
@@ -238,6 +238,8 @@ mod varuna {
             assert_eq!(average, claims.sum(&combiners, eta_a, eta_b, eta_c) * domain.size_inv);
             let challenges =
                 PrepareThirdMessage { third_round_batch_combiners: combiners.clone(), eta_a, eta_b, eta_c };
+            // The prepared third round uses the mask and the prepared lineval polynomials.
+            state.first_round_oracles.as_mut().expect("valid test fixture").batches.clear();
             let (_, oracles, _) = AHPForR1CS::<_, VarunaHidingMode>::prover_third_round(
                 &first_message,
                 &second_message,
