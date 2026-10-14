@@ -315,9 +315,10 @@ impl Network for CanaryV0 {
                     )
                 })
                 .unwrap_or_else(|| {
+                    let bytes = snarkvm_parameters::canary::InclusionProver::load_bytes()
+                        .expect("Failed to load inclusion proving key.");
                     Arc::new(
-                        CircuitProvingKey::from_bytes_le(&snarkvm_parameters::canary::INCLUSION_PROVING_KEY[1..])
-                            .expect("Failed to load inclusion proving key."),
+                        CircuitProvingKey::from_bytes_le(&bytes[1..]).expect("Failed to load inclusion proving key."),
                     )
                 })
         })

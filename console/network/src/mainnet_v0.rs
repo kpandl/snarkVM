@@ -320,9 +320,10 @@ impl Network for MainnetV0 {
                     )
                 })
                 .unwrap_or_else(|| {
+                    let bytes = snarkvm_parameters::mainnet::InclusionProver::load_bytes()
+                        .expect("Failed to load inclusion proving key.");
                     Arc::new(
-                        CircuitProvingKey::from_bytes_le(&snarkvm_parameters::mainnet::INCLUSION_PROVING_KEY[1..])
-                            .expect("Failed to load inclusion proving key."),
+                        CircuitProvingKey::from_bytes_le(&bytes[1..]).expect("Failed to load inclusion proving key."),
                     )
                 })
         })
